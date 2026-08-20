@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: gestao-entidades-api
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/gestao_entidades_db
+    username: postgres
+    password: postgres # Mantenha a senha que funcionou!
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+    # A MÁGICA ACONTECE AQUI: update faz o Java criar as tabelas!
+    hibernate:
+      ddl-auto: update
+
+  flyway:
+    enabled: false
+
+server:
+  port: 8080
