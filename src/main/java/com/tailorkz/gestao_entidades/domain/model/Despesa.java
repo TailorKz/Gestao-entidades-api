@@ -4,6 +4,7 @@ import com.tailorkz.gestao_entidades.domain.enums.StatusDespesa;
 import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.UUID;
 
@@ -39,4 +40,16 @@ public class Despesa {
 
     @Column(name = "data_competencia", nullable = false)
     private YearMonth dataCompetencia;
+
+    @Column(length = 150)
+    private String emitente;
+
+    @Column(name = "numero_documento", length = 50)
+    private String numeroDocumento;
+
+    @Column(name = "data_emissao")
+    private LocalDate dataEmissao;
+
+    @Column(columnDefinition = "TEXT")
+    private String descricao;
 }

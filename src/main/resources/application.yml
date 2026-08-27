@@ -5,7 +5,7 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/gestao_entidades_db
     username: postgres
-    password: postgres # Mantenha a senha que funcionou!
+    password: postgres
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -13,12 +13,20 @@ spring:
     properties:
       hibernate:
         format_sql: true
-    # A MÁGICA ACONTECE AQUI: update faz o Java criar as tabelas!
     hibernate:
       ddl-auto: update
 
   flyway:
     enabled: false
 
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
 server:
   port: 8080
+
+gemini:
+  api:
+    key: "FUTURA_CHAVE"
