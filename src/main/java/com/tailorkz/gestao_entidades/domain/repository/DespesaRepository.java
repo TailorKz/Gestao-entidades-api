@@ -9,6 +9,7 @@ import java.util.UUID;
 
 @Repository
 public interface DespesaRepository extends JpaRepository<Despesa, UUID> {
-
     List<Despesa> findByParcelaId(UUID parcelaId);
+
+    List<Despesa> findByUsuarioId(UUID usuarioId);
 }

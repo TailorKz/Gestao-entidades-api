@@ -17,30 +17,35 @@ public class DocumentoAnexoService {
     private final DocumentoAnexoRepository anexoRepository;
     private final DespesaRepository despesaRepository;
     private final ArmazenamentoArquivoService armazenamentoService;
+    private final PdfCompressorService pdfCompressorService;
 
     public DocumentoAnexoService(DocumentoAnexoRepository anexoRepository,
                                  DespesaRepository despesaRepository,
-                                 ArmazenamentoArquivoService armazenamentoService) {
+                                 ArmazenamentoArquivoService armazenamentoService,
+                                 PdfCompressorService pdfCompressorService) {
         this.anexoRepository = anexoRepository;
         this.despesaRepository = despesaRepository;
         this.armazenamentoService = armazenamentoService;
+        this.pdfCompressorService = pdfCompressorService;
     }
 
     @Transactional
     public DocumentoAnexo anexarArquivo(UUID despesaId, TipoDocumento tipo, MultipartFile arquivo) {
-        // Verifica se a despesa existe no banco
+
         Despesa despesa = despesaRepository.findById(despesaId)
                 .orElseThrow(() -> new RuntimeException("Despesa não encontrada!"));
 
-        // 2. Salva o arquivo fisicamente no disco
+        // 1. Salva o arquivo fisicamente no disco (Pode ter até 30MB)
         String caminhoSalvo = armazenamentoService.armazenar(arquivo, arquivo.getOriginalFilename());
 
-        // 3. Registra no banco de dados
+        // Aciona a compressão
+        // Se for PDF, ele espreme e salva por cima. Se for imagem, ele ignora.
+        pdfCompressorService.comprimirPdf(caminhoSalvo);
+
+        // 3. Registra no banco de dados com o caminho já otimizado
         DocumentoAnexo novoAnexo = new DocumentoAnexo();
         novoAnexo.setDespesa(despesa);
         novoAnexo.setTipo(tipo);
-
-        // Como ainda está no ambiente local, guarda o caminho da pasta aqui.
         novoAnexo.setUrlS3(caminhoSalvo);
         novoAnexo.setChaveS3(arquivo.getOriginalFilename());
 

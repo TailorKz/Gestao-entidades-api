@@ -121,4 +121,17 @@ public class DespesaController {
                 )).toList();
         return ResponseEntity.ok(despesas);
     }
+
+    @GetMapping("/usuario/{usuarioId}")
+    public ResponseEntity<List<DespesaResponseDTO>> listarPorUsuario(@PathVariable UUID usuarioId) {
+        List<DespesaResponseDTO> despesas = despesaRepository.findByUsuarioId(usuarioId).stream()
+                .map(d -> new DespesaResponseDTO(
+                        d.getId(),
+                        d.getValor(),
+                        d.getDataCompetencia().toString(),
+                        d.getStatus().name(),
+                        d.getUsuario().getNome()
+                )).toList();
+        return ResponseEntity.ok(despesas);
+    }
 }
