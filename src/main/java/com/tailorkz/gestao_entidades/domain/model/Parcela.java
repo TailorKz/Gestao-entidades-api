@@ -32,4 +32,9 @@ public class Parcela {
 
     @Column(name = "saldo_atual", nullable = false, precision = 15, scale = 2)
     private BigDecimal saldoAtual;
+
+
+    @Column(name = "meses_referencia")
+    private String mesesReferencia;
+
 }

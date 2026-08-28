@@ -1,5 +1,6 @@
 package com.tailorkz.gestao_entidades.controller;
 
+import com.tailorkz.gestao_entidades.controller.dto.AnexoDTO;
 import com.tailorkz.gestao_entidades.controller.dto.DespesaRequestDTO;
 import com.tailorkz.gestao_entidades.controller.dto.DespesaResponseDTO;
 import com.tailorkz.gestao_entidades.domain.enums.StatusDespesa;
@@ -8,6 +9,7 @@ import com.tailorkz.gestao_entidades.domain.model.Despesa;
 import com.tailorkz.gestao_entidades.domain.model.Parcela;
 import com.tailorkz.gestao_entidades.domain.model.Usuario;
 import com.tailorkz.gestao_entidades.domain.repository.DespesaRepository;
+import com.tailorkz.gestao_entidades.domain.repository.DocumentoAnexoRepository;
 import com.tailorkz.gestao_entidades.domain.service.DespesaService;
 import com.tailorkz.gestao_entidades.domain.service.DocumentoAnexoService;
 import org.springframework.http.HttpStatus;
@@ -29,12 +31,18 @@ public class DespesaController {
 
     private final DespesaService despesaService;
     private final DespesaRepository despesaRepository;
-    private final DocumentoAnexoService anexoService; // Injetando seu service de arquivos
+    private final DocumentoAnexoService anexoService;
+    private final DocumentoAnexoRepository documentoAnexoRepository; // <-- 1. Adicionado o repositório
 
-    public DespesaController(DespesaService despesaService, DespesaRepository despesaRepository, DocumentoAnexoService anexoService) {
+    // 2. Injetado no construtor
+    public DespesaController(DespesaService despesaService,
+                             DespesaRepository despesaRepository,
+                             DocumentoAnexoService anexoService,
+                             DocumentoAnexoRepository documentoAnexoRepository) {
         this.despesaService = despesaService;
         this.despesaRepository = despesaRepository;
         this.anexoService = anexoService;
+        this.documentoAnexoRepository = documentoAnexoRepository;
     }
 
     @PostMapping
@@ -77,7 +85,7 @@ public class DespesaController {
         Despesa novaDespesa = new Despesa();
         novaDespesa.setValor(valor);
         novaDespesa.setDataCompetencia(YearMonth.parse(dataCompetencia));
-        novaDespesa.setStatus(StatusDespesa.PRONTA_PARA_MATCH); // Como enviou os arquivos, atualiza o status
+        novaDespesa.setStatus(StatusDespesa.PRONTA_PARA_MATCH);
         novaDespesa.setEmitente(emitente);
         novaDespesa.setDataEmissao(LocalDate.parse(dataEmissao));
         novaDespesa.setNumeroDocumento(numero);
@@ -91,15 +99,15 @@ public class DespesaController {
         usuario.setId(usuarioId);
         novaDespesa.setUsuario(usuario);
 
-        // 3. Salvar no Banco (service já abate o saldo da Parcela)
+        // 3. Salvar no Banco
         Despesa despesaSalva = despesaService.registrarNovaDespesa(novaDespesa);
 
-        // 4. Salvar Nota Fiscal no Disco via seu Service e vincular ao BD
+        // 4. Salvar Nota Fiscal no Disco
         if (notaFiscal != null && !notaFiscal.isEmpty()) {
             anexoService.anexarArquivo(despesaSalva.getId(), TipoDocumento.NOTA_FISCAL, notaFiscal);
         }
 
-        // 5. Salvar Anexos Extras no Disco via Service e vincular ao BD
+        // 5. Salvar Anexos Extras no Disco
         if (anexosExtras != null && !anexosExtras.isEmpty()) {
             for (MultipartFile extra : anexosExtras) {
                 anexoService.anexarArquivo(despesaSalva.getId(), TipoDocumento.RELATORIO, extra);
@@ -134,4 +142,17 @@ public class DespesaController {
                 )).toList();
         return ResponseEntity.ok(despesas);
     }
+
+    @GetMapping("/{despesaId}/anexos")
+    public ResponseEntity<List<AnexoDTO>> listarAnexosDaDespesa(@PathVariable UUID despesaId) {
+        List<AnexoDTO> anexos = documentoAnexoRepository.findByDespesaId(despesaId).stream()
+                .map(a -> new AnexoDTO(
+                        a.getId(),
+                        a.getTipo().name(),
+                        a.getChaveS3(),
+                        a.getUrlS3()
+                )).toList();
+        return ResponseEntity.ok(anexos);
+    }
 }
+

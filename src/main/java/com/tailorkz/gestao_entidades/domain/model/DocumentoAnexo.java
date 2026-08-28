@@ -37,4 +37,6 @@ public class DocumentoAnexo {
     @Column(name = "status_extracao")
     @Builder.Default
     private Boolean statusExtracao = false;
+
+
 }

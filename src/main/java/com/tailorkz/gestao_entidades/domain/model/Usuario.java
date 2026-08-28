@@ -44,4 +44,8 @@ public class Usuario {
     @Enumerated(EnumType.STRING)
     @Column(length = 30)
     private Categoria categoria;
+
+    @Column(name = "precisa_trocar_senha")
+    @Builder.Default
+    private Boolean precisaTrocarSenha = true;
 }

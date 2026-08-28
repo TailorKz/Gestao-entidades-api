@@ -1,6 +1,8 @@
 package com.tailorkz.gestao_entidades.controller;
 
-import com.tailorkz.gestao_entidades.domain.enums.Categoria;
+
+import com.tailorkz.gestao_entidades.controller.dto.CadastroUsuarioDTO;
+import com.tailorkz.gestao_entidades.controller.dto.UsuarioResponseDTO;
 import com.tailorkz.gestao_entidades.domain.enums.Role;
 import com.tailorkz.gestao_entidades.domain.model.Tenant;
 import com.tailorkz.gestao_entidades.domain.model.Usuario;
@@ -49,19 +51,19 @@ public class UsuarioController {
         novoUsuario.setEmail(dto.email());
         novoUsuario.setLogin(dto.login());
 
-        // Criptografa a senha antes de salvar!
+        // Criptografa a senha antes de salvar
         novoUsuario.setSenhaHash(passwordEncoder.encode(dto.senha()));
 
         novoUsuario.setRole(dto.role());
         novoUsuario.setCategoria(dto.categoria()); // Ex: ESPORTE ou CULTURA
         novoUsuario.setTenant(tenant);
-
+        novoUsuario.setPrecisaTrocarSenha(true);
         usuarioRepository.save(novoUsuario);
 
         return ResponseEntity.status(HttpStatus.CREATED).body("Usuário criado com sucesso!");
     }
 
-    // --- ROTA 2: LISTAR INSTRUTORES (Para a tela do Admin) ---
+    // ROTA 2: LISTAR INSTRUTORES (Para a tela do Admin)
     @GetMapping("/instrutores/{tenantId}")
     public ResponseEntity<List<UsuarioResponseDTO>> listarInstrutores(@PathVariable UUID tenantId) {
         List<UsuarioResponseDTO> instrutores = usuarioRepository.findByTenantIdAndRole(tenantId, Role.INSTRUTOR)
@@ -77,19 +79,3 @@ public class UsuarioController {
     }
 }
 
-record CadastroUsuarioDTO(
-        UUID tenantId,
-        String nome,
-        String email,
-        String login,
-        String senha,
-        Role role,
-        Categoria categoria
-) {}
-
-record UsuarioResponseDTO(
-        UUID id,
-        String nome,
-        String email,
-        String categoria
-) {}
