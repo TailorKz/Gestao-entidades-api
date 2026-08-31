@@ -31,8 +31,9 @@ public class Usuario {
     @Column(nullable = false, unique = true, length = 50)
     private String login;
 
-    @Column(nullable = false, unique = true, length = 150)
-    private String email;
+    @Column(name = "observacoes", columnDefinition = "TEXT")
+    @Convert(converter = com.tailorkz.gestao_entidades.domain.util.CryptoConverter.class)
+    private String observacoes;
 
     @Column(name = "senha_hash", nullable = false)
     private String senhaHash;
@@ -48,4 +49,6 @@ public class Usuario {
     @Column(name = "precisa_trocar_senha")
     @Builder.Default
     private Boolean precisaTrocarSenha = true;
+
+
 }

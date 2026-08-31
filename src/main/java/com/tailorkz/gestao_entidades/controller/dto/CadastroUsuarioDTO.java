@@ -8,7 +8,7 @@ import java.util.UUID;
 public record CadastroUsuarioDTO(
         UUID tenantId,
         String nome,
-        String email,
+        String observacoes,
         String login,
         String senha,
         Role role,
