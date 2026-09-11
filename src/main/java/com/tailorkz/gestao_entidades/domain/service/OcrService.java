@@ -22,6 +22,12 @@ public class OcrService {
     @Value("${gemini.api.key:}")
     private String geminiApiKey;
 
+    @Value("${gemini.api.url:https://generativelanguage.googleapis.com}")
+    private String geminiApiUrl;
+
+    @Value("${gemini.api.modelo:gemini-1.5-flash}")
+    private String geminiModelo;
+
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -62,7 +68,7 @@ public class OcrService {
         }
 
         try {
-            String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + geminiApiKey;
+            String url = geminiApiUrl + "/v1beta/models/" + geminiModelo + ":generateContent?key=" + geminiApiKey;
 
             // Tratamento pesado para impedir que o PDF quebre o JSON do Google
             String textoSeguro = texto.replace("\"", "\\\"").replace("\n", " ").replace("\r", "").replaceAll("[\\x00-\\x1F]", "");

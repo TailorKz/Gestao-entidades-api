@@ -3,13 +3,14 @@ spring:
     name: gestao-entidades-api
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/gestao_entidades_db
-    username: postgres
-    password: postgres
+    url: jdbc:postgresql://${PGHOST}:${PGPORT:5432}/${PGDATABASE}
+    username: ${PGUSER}
+    password: ${PGPASSWORD}
     driver-class-name: org.postgresql.Driver
 
   jpa:
-    show-sql: true
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    show-sql: false
     properties:
       hibernate:
         format_sql: true
@@ -25,8 +26,27 @@ spring:
       max-request-size: 35MB
 
 server:
-  port: 8080
+  port: ${PORT:8080}
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:ChaveDesenvolvimentoINDACI2026Com32Caracteres!}
+    expiracao-horas: 8
+  cors:
+    origens: ${CORS_ORIGINS:http://localhost:5173}
+  seed:
+    ativo: ${APP_SEED_ATIVO:true}
+    tenant-nome: ${APP_SEED_TENANT_NOME:INDACI}
+    tenant-cnpj: ${APP_SEED_TENANT_CNPJ:00.000.000/0001-00}
+    admin-login: ${APP_SEED_ADMIN_LOGIN:admin}
+    admin-senha: ${APP_SEED_ADMIN_SENHA:admin123}
+    fomento-titulo: ${APP_SEED_FOMENTO_TITULO:Convênio 2026}
+    fomento-ano: ${APP_SEED_FOMENTO_ANO:2026}
+    parcela-numero: 1
+    parcela-valor: 85000.00
 
 gemini:
   api:
-    key: "FUTURA_CHAVE"
+    key: ${GEMINI_API_KEY}
+    url: ${GEMINI_API_URL:https://generativelanguage.googleapis.com}
+    modelo: ${GEMINI_API_MODELO:gemini-1.5-flash}

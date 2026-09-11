@@ -1,5 +1,6 @@
 package com.tailorkz.gestao_entidades.domain.model;
 
+import com.tailorkz.gestao_entidades.domain.enums.Categoria;
 import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
@@ -29,6 +30,10 @@ public class Fomento {
 
     @Column(name = "valor_total", nullable = false, precision = 15, scale = 2)
     private BigDecimal valorTotal;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    private Categoria categoria;
 
     @Column(name = "ano_vigencia", nullable = false)
     private Integer anoVigencia;

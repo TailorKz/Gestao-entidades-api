@@ -1,5 +1,6 @@
 package com.tailorkz.gestao_entidades.domain.repository;
 
+import com.tailorkz.gestao_entidades.domain.enums.Categoria;
 import com.tailorkz.gestao_entidades.domain.enums.Role;
 import com.tailorkz.gestao_entidades.domain.model.Usuario;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,4 +15,10 @@ public interface UsuarioRepository extends JpaRepository<Usuario, UUID> {
     Optional<Usuario> findByLogin(String login);
 
     List<Usuario> findByTenantIdAndRole(UUID tenantId, Role role);
+
+    List<Usuario> findByTenantIdAndRoleAndCategoria(UUID tenantId, Role role, Categoria categoria);
+
+    List<Usuario> findByRole(Role role);
+
+    List<Usuario> findByRoleAndCategoria(Role role, Categoria categoria);
 }

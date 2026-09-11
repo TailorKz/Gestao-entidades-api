@@ -6,8 +6,11 @@ import com.tailorkz.gestao_entidades.domain.model.Usuario;
 import com.tailorkz.gestao_entidades.domain.repository.DespesaRepository;
 import com.tailorkz.gestao_entidades.domain.repository.ParcelaRepository;
 import com.tailorkz.gestao_entidades.domain.repository.UsuarioRepository;
+import com.tailorkz.gestao_entidades.domain.enums.Role;
+import com.tailorkz.gestao_entidades.security.SegurancaService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -22,44 +25,51 @@ public class DashboardController {
     private final UsuarioRepository usuarioRepository;
     private final DespesaRepository despesaRepository;
     private final ParcelaRepository parcelaRepository;
+    private final SegurancaService segurancaService;
 
-    public DashboardController(UsuarioRepository usuarioRepository, DespesaRepository despesaRepository, ParcelaRepository parcelaRepository) {
+    public DashboardController(UsuarioRepository usuarioRepository,
+                               DespesaRepository despesaRepository,
+                               ParcelaRepository parcelaRepository,
+                               SegurancaService segurancaService) {
         this.usuarioRepository = usuarioRepository;
         this.despesaRepository = despesaRepository;
         this.parcelaRepository = parcelaRepository;
+        this.segurancaService = segurancaService;
     }
 
     @GetMapping("/resumo/{parcelaId}")
     public ResponseEntity<DashboardResumoDTO> obterResumo(@PathVariable UUID parcelaId) {
 
-        // 1. Pega a parcela para ver o financeiro
         Parcela parcela = parcelaRepository.findById(parcelaId)
-                .orElseThrow(() -> new RuntimeException("Parcela não encontrada"));
+                .orElseThrow(() -> new ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "Parcela não encontrada"));
 
-        // 2. Busca TODOS os instrutores cadastrados no banco
-        List<Usuario> todosInstrutores = usuarioRepository.findAll().stream()
-                .filter(u -> "INSTRUTOR".equals(u.getRole().name()))
-                .toList();
+        if (!segurancaService.ehSuperAdmin()) {
+            segurancaService.garantirAcessoTenant(parcela.getFomento().getTenant().getId());
+        }
 
-        // 3. Busca as Prestações Reais já enviadas para esta parcela
+        UUID tenantParcela = parcela.getFomento().getTenant().getId();
+        com.tailorkz.gestao_entidades.domain.enums.Categoria categoriaParcela = parcela.getFomento().getCategoria();
+
+        // Apenas os instrutores da entidade dona da parcela (e do mesmo setor, quando houver)
+        List<Usuario> instrutores = categoriaParcela != null
+                ? usuarioRepository.findByTenantIdAndRoleAndCategoria(tenantParcela, Role.INSTRUTOR, categoriaParcela)
+                : usuarioRepository.findByTenantIdAndRole(tenantParcela, Role.INSTRUTOR);
+
         List<Despesa> despesas = despesaRepository.findByParcelaId(parcelaId);
 
-        // 4. Extrai apenas os IDs de quem já enviou
         List<UUID> idsQueEnviaram = despesas.stream()
                 .map(d -> d.getUsuario().getId())
                 .toList();
 
-        // 5. A Mágica: Filtra os instrutores e converte a Categoria para String!
-        List<InstrutorPendenteDTO> pendentes = todosInstrutores.stream()
+        List<InstrutorPendenteDTO> pendentes = instrutores.stream()
                 .filter(u -> !idsQueEnviaram.contains(u.getId()))
                 .map(u -> new InstrutorPendenteDTO(
                         u.getId(),
                         u.getNome(),
-                        u.getCategoria() != null ? u.getCategoria().name() : "Não definida" // <-- A CORREÇÃO ESTÁ AQUI
+                        u.getCategoria() != null ? u.getCategoria().name() : "Não definida"
                 ))
                 .toList();
 
-        // 6. Calcula a % de uso da parcela (Saúde Financeira)
         BigDecimal totalGasto = parcela.getValorInicial().subtract(parcela.getSaldoAtual());
         double saude = 0.0;
         if (parcela.getValorInicial().compareTo(BigDecimal.ZERO) > 0) {
@@ -67,9 +77,8 @@ public class DashboardController {
                     .multiply(new BigDecimal("100")).doubleValue();
         }
 
-        // 7. Empacota tudo e manda pro React
         DashboardResumoDTO resumo = new DashboardResumoDTO(
-                todosInstrutores.size(),
+                instrutores.size(),
                 pendentes.size(),
                 despesas.size(),
                 (int) saude,
@@ -80,6 +89,5 @@ public class DashboardController {
     }
 }
 
-// DTOs auxiliares para formatar a resposta
 record InstrutorPendenteDTO(UUID id, String nome, String categoria) {}
 record DashboardResumoDTO(int totalInstrutores, int instrutoresPendentes, int prestacoesRecebidas, int saudeParcela, List<InstrutorPendenteDTO> listaPendentes) {}
