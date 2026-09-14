@@ -7,10 +7,13 @@ import com.tailorkz.gestao_entidades.domain.enums.Role;
 import com.tailorkz.gestao_entidades.domain.enums.StatusDespesa;
 import com.tailorkz.gestao_entidades.domain.enums.TipoDocumento;
 import com.tailorkz.gestao_entidades.domain.model.Despesa;
+import com.tailorkz.gestao_entidades.domain.model.DespesaEstimada;
 import com.tailorkz.gestao_entidades.domain.model.Parcela;
 import com.tailorkz.gestao_entidades.domain.model.Usuario;
+import com.tailorkz.gestao_entidades.domain.repository.DespesaEstimadaRepository;
 import com.tailorkz.gestao_entidades.domain.repository.DespesaRepository;
 import com.tailorkz.gestao_entidades.domain.repository.DocumentoAnexoRepository;
+import com.tailorkz.gestao_entidades.domain.repository.ParcelaRepository;
 import com.tailorkz.gestao_entidades.domain.repository.UsuarioRepository;
 import com.tailorkz.gestao_entidades.domain.service.DespesaService;
 import com.tailorkz.gestao_entidades.domain.service.DocumentoAnexoService;
@@ -37,25 +40,31 @@ public class DespesaController {
     private final DespesaRepository despesaRepository;
     private final DocumentoAnexoService anexoService;
     private final DocumentoAnexoRepository documentoAnexoRepository;
+    private final ParcelaRepository parcelaRepository;
     private final UsuarioRepository usuarioRepository;
+    private final DespesaEstimadaRepository despesaEstimadaRepository;
     private final SegurancaService segurancaService;
 
     public DespesaController(DespesaService despesaService,
                              DespesaRepository despesaRepository,
                              DocumentoAnexoService anexoService,
                              DocumentoAnexoRepository documentoAnexoRepository,
+                             ParcelaRepository parcelaRepository,
                              UsuarioRepository usuarioRepository,
+                             DespesaEstimadaRepository despesaEstimadaRepository,
                              SegurancaService segurancaService) {
         this.despesaService = despesaService;
         this.despesaRepository = despesaRepository;
         this.anexoService = anexoService;
         this.documentoAnexoRepository = documentoAnexoRepository;
+        this.parcelaRepository = parcelaRepository;
         this.usuarioRepository = usuarioRepository;
+        this.despesaEstimadaRepository = despesaEstimadaRepository;
         this.segurancaService = segurancaService;
     }
 
     @PostMapping
-    public ResponseEntity<Despesa> registrarDespesa(@RequestBody DespesaRequestDTO dto) {
+    public ResponseEntity<DespesaResponseDTO> registrarDespesa(@RequestBody DespesaRequestDTO dto) {
         Parcela parcela = validarParcelaAutenticada(dto.parcelaId());
         Usuario usuario = validarUsuarioAutenticado(dto.usuarioId());
 
@@ -67,11 +76,11 @@ public class DespesaController {
         novaDespesa.setUsuario(usuario);
 
         Despesa despesaSalva = despesaService.registrarNovaDespesa(novaDespesa);
-        return ResponseEntity.status(HttpStatus.CREATED).body(despesaSalva);
+        return ResponseEntity.status(HttpStatus.CREATED).body(paraDTO(despesaSalva));
     }
 
     @PostMapping(value = "/com-anexos", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<Despesa> registrarComAnexos(
+    public ResponseEntity<DespesaResponseDTO> registrarComAnexos(
             @RequestParam("parcelaId") UUID parcelaId,
             @RequestParam("usuarioId") UUID usuarioId,
             @RequestParam("dataCompetencia") String dataCompetencia,
@@ -107,7 +116,98 @@ public class DespesaController {
             }
         }
 
-        return ResponseEntity.status(HttpStatus.CREATED).body(despesaSalva);
+        return ResponseEntity.status(HttpStatus.CREATED).body(paraDTO(despesaSalva));
+    }
+
+    @PostMapping(value = "/admin-lancar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<DespesaResponseDTO> lancarPeloAdmin(
+            @RequestParam("parcelaId") UUID parcelaId,
+            @RequestParam(value = "usuarioId", required = false) UUID usuarioId,
+            @RequestParam("dataCompetencia") String dataCompetencia,
+            @RequestParam("valor") String valorString,
+            @RequestParam("emitente") String emitente,
+            @RequestParam("dataEmissao") String dataEmissao,
+            @RequestParam("numero") String numero,
+            @RequestParam("descricao") String descricao,
+            @RequestParam(value = "nomeEmpresa", required = false) String nomeEmpresa,
+            @RequestParam(value = "observacao", required = false) String observacao,
+            @RequestParam("notaFiscal") MultipartFile notaFiscal,
+            @RequestParam(value = "anexosExtras", required = false) List<MultipartFile> anexosExtras) {
+
+        if (segurancaService.logado().getRole() == Role.INSTRUTOR) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Somente gestores podem lançar despesas em nome de outros.");
+        }
+
+        BigDecimal valor = parseValor(valorString);
+        Parcela parcela = validarParcelaAutenticada(parcelaId);
+
+        boolean avulso = usuarioId == null;
+        if (avulso && (nomeEmpresa == null || nomeEmpresa.isBlank())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Informe o nome da empresa para lançamento avulso.");
+        }
+
+        Usuario usuario = avulso ? segurancaService.logado() : validarUsuarioAutenticado(usuarioId);
+
+        Despesa novaDespesa = new Despesa();
+        novaDespesa.setValor(valor);
+        novaDespesa.setDataCompetencia(YearMonth.parse(dataCompetencia));
+        novaDespesa.setStatus(StatusDespesa.PRONTA_PARA_MATCH);
+        novaDespesa.setEmitente(emitente);
+        novaDespesa.setDataEmissao(LocalDate.parse(dataEmissao));
+        novaDespesa.setNumeroDocumento(numero);
+        novaDespesa.setDescricao(descricao);
+        novaDespesa.setParcela(parcela);
+        novaDespesa.setUsuario(usuario);
+        novaDespesa.setNomeEmpresa(avulso ? nomeEmpresa.trim() : null);
+        novaDespesa.setObservacao(observacao != null && !observacao.isBlank() ? observacao.trim() : null);
+
+        Despesa despesaSalva = despesaService.registrarNovaDespesa(novaDespesa);
+
+        if (avulso) {
+            String descEstimativa = nomeEmpresa.trim();
+            if (observacao != null && !observacao.isBlank()) {
+                descEstimativa += " - OBS: " + observacao.trim();
+            }
+            DespesaEstimada estimativa = new DespesaEstimada();
+            estimativa.setDescricao(descEstimativa);
+            estimativa.setValor(valor);
+            estimativa.setParcela(parcela);
+            despesaEstimadaRepository.save(estimativa);
+        }
+
+        anexar(despesaSalva.getId(), TipoDocumento.NOTA_FISCAL, notaFiscal);
+        if (anexosExtras != null) {
+            for (MultipartFile extra : anexosExtras) {
+                anexar(despesaSalva.getId(), TipoDocumento.RELATORIO, extra);
+            }
+        }
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(paraDTO(despesaSalva));
+    }
+
+    @GetMapping("/parcela/{parcelaId}/instrutor/{instrutorId}")
+    public ResponseEntity<List<DespesaResponseDTO>> listarDoInstrutorNaParcela(
+            @PathVariable UUID parcelaId,
+            @PathVariable UUID instrutorId) {
+        Parcela parcela = validarParcelaAutenticada(parcelaId);
+
+        Usuario instrutor = usuarioRepository.findById(instrutorId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Instrutor não encontrado."));
+        segurancaService.garantirAcessoTenant(instrutor.getTenant().getId());
+
+        List<DespesaResponseDTO> despesas = despesaRepository.findByParcelaIdAndUsuarioId(parcela.getId(), instrutor.getId())
+                .stream()
+                .map(d -> new DespesaResponseDTO(
+                        d.getId(),
+                        d.getValor(),
+                        d.getDataCompetencia().toString(),
+                        d.getStatus().name(),
+                        d.getUsuario() != null ? d.getUsuario().getNome() : null,
+                        d.getNomeEmpresa(),
+                        d.getObservacao(),
+                        d.getEmitente()
+                )).toList();
+        return ResponseEntity.ok(despesas);
     }
 
     @GetMapping("/parcela/{parcelaId}")
@@ -119,7 +219,10 @@ public class DespesaController {
                         d.getValor(),
                         d.getDataCompetencia().toString(),
                         d.getStatus().name(),
-                        d.getUsuario().getNome()
+                        d.getUsuario() != null ? d.getUsuario().getNome() : null,
+                        d.getNomeEmpresa(),
+                        d.getObservacao(),
+                        d.getEmitente()
                 )).toList();
         return ResponseEntity.ok(despesas);
     }
@@ -141,7 +244,10 @@ public class DespesaController {
                         d.getValor(),
                         d.getDataCompetencia().toString(),
                         d.getStatus().name(),
-                        d.getUsuario().getNome()
+                        d.getUsuario() != null ? d.getUsuario().getNome() : null,
+                        d.getNomeEmpresa(),
+                        d.getObservacao(),
+                        d.getEmitente()
                 )).toList();
         return ResponseEntity.ok(despesas);
     }
@@ -190,8 +296,114 @@ public class DespesaController {
                 salva.getValor(),
                 salva.getDataCompetencia().toString(),
                 salva.getStatus().name(),
-                salva.getUsuario().getNome()
+                salva.getUsuario() != null ? salva.getUsuario().getNome() : null,
+                salva.getNomeEmpresa(),
+                salva.getObservacao(),
+                salva.getEmitente()
         ));
+    }
+
+    @PutMapping("/{despesaId}")
+    public ResponseEntity<DespesaResponseDTO> editar(@PathVariable UUID despesaId, @RequestBody EditarDespesaDTO dto) {
+        if (segurancaService.logado().getRole() == Role.INSTRUTOR) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Somente gestores podem editar despesas.");
+        }
+
+        Despesa despesa = buscarDespesa(despesaId);
+        segurancaService.garantirAcessoTenant(despesa.getParcela().getFomento().getTenant().getId());
+
+        if (dto.valor() == null || dto.valor().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "O valor da despesa deve ser maior que zero.");
+        }
+
+        Parcela parcela = despesa.getParcela();
+        BigDecimal saldoAjustado = parcela.getSaldoAtual().add(despesa.getValor());
+        if (dto.valor().compareTo(saldoAjustado) > 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Valor da despesa excede o saldo disponível da parcela (R$ " + saldoAjustado + ").");
+        }
+
+        despesa.setValor(dto.valor());
+        if (dto.dataCompetencia() != null && !dto.dataCompetencia().isBlank()) {
+            despesa.setDataCompetencia(YearMonth.parse(dto.dataCompetencia()));
+        }
+        if (dto.emitente() != null) despesa.setEmitente(dto.emitente().trim());
+        if (dto.numero() != null) despesa.setNumeroDocumento(dto.numero().trim());
+        if (dto.descricao() != null) despesa.setDescricao(dto.descricao().trim());
+        if (dto.nomeEmpresa() != null && !dto.nomeEmpresa().trim().isEmpty()) {
+            despesa.setNomeEmpresa(dto.nomeEmpresa().trim());
+        }
+        if (dto.observacao() != null) despesa.setObservacao(dto.observacao().isEmpty() ? null : dto.observacao().trim());
+
+        Despesa salva = despesaRepository.save(despesa);
+        parcela.setSaldoAtual(saldoAjustado.subtract(dto.valor()));
+        parcelaRepository.save(parcela);
+
+        if (salva.getNomeEmpresa() != null && !salva.getNomeEmpresa().isBlank()) {
+            String empresa = salva.getNomeEmpresa().trim();
+            StringBuilder descEstimativa = new StringBuilder(empresa);
+            if (salva.getObservacao() != null && !salva.getObservacao().isBlank()) {
+                descEstimativa.append(" - OBS: ").append(salva.getObservacao().trim());
+            }
+            String descricaoFinal = descEstimativa.toString();
+            despesaEstimadaRepository.findByParcelaId(parcela.getId()).stream()
+                    .filter(e -> {
+                        String d = e.getDescricao();
+                        if (d == null) return false;
+                        return d.equals(empresa)
+                                || d.startsWith(empresa + " - OBS:")
+                                || d.equals("Lançamento avulso \u2014 " + empresa); // legado
+                    })
+                    .findFirst()
+                    .ifPresent(e -> {
+                        e.setDescricao(descricaoFinal);
+                        despesaEstimadaRepository.save(e);
+                    });
+        }
+
+        return ResponseEntity.ok(new DespesaResponseDTO(
+                salva.getId(),
+                salva.getValor(),
+                salva.getDataCompetencia().toString(),
+                salva.getStatus().name(),
+                salva.getUsuario() != null ? salva.getUsuario().getNome() : null,
+                salva.getNomeEmpresa(),
+                salva.getObservacao(),
+                salva.getEmitente()
+        ));
+    }
+
+    @DeleteMapping("/{despesaId}")
+    public ResponseEntity<Void> deletar(@PathVariable UUID despesaId) {
+        if (segurancaService.logado().getRole() == Role.INSTRUTOR) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Somente gestores podem excluir despesas.");
+        }
+
+        Despesa despesa = buscarDespesa(despesaId);
+        segurancaService.garantirAcessoTenant(despesa.getParcela().getFomento().getTenant().getId());
+
+        Parcela parcela = despesa.getParcela();
+        parcela.setSaldoAtual(parcela.getSaldoAtual().add(despesa.getValor()));
+        parcelaRepository.save(parcela);
+
+        anexoService.removerAnexosDaDespesa(despesa.getId());
+
+        if (despesa.getNomeEmpresa() != null && !despesa.getNomeEmpresa().isBlank()) {
+            String empresa = despesa.getNomeEmpresa().trim();
+            despesaEstimadaRepository.findByParcelaId(parcela.getId()).stream()
+                    .filter(e -> {
+                        String d = e.getDescricao();
+                        if (d == null) return false;
+                        return d.equals(empresa)
+                                || d.startsWith(empresa + " - OBS:")
+                                || d.equals("Lançamento avulso \u2014 " + empresa); // legado
+                    })
+                    .findFirst()
+                    .ifPresent(despesaEstimadaRepository::delete);
+        }
+
+        despesaRepository.deleteById(despesa.getId());
+        return ResponseEntity.noContent().build();
     }
 
     private Parcela validarParcelaAutenticada(UUID parcelaId) {
@@ -232,6 +444,19 @@ public class DespesaController {
         }
     }
 
+    private DespesaResponseDTO paraDTO(Despesa despesa) {
+        return new DespesaResponseDTO(
+                despesa.getId(),
+                despesa.getValor(),
+                despesa.getDataCompetencia().toString(),
+                despesa.getStatus().name(),
+                despesa.getUsuario() != null ? despesa.getUsuario().getNome() : null,
+                despesa.getNomeEmpresa(),
+                despesa.getObservacao(),
+                despesa.getEmitente()
+        );
+    }
+
     private BigDecimal parseValor(String valorString) {
         try {
             String valorLimpo = valorString.replace(".", "").replace(",", ".");
@@ -243,3 +468,12 @@ public class DespesaController {
 }
 
 record AtualizarStatusDespesaDTO(StatusDespesa novoStatus) {}
+record EditarDespesaDTO(
+        BigDecimal valor,
+        String dataCompetencia,
+        String emitente,
+        String numero,
+        String descricao,
+        String nomeEmpresa,
+        String observacao
+) {}

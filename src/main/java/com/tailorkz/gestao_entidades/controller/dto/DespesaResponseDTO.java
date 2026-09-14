@@ -8,6 +8,9 @@ public record DespesaResponseDTO(
         BigDecimal valor,
         String dataCompetencia,
         String status,
-        String nomeInstrutor
+        String nomeInstrutor,
+        String nomeEmpresa,
+        String observacao,
+        String emitente
 ) {
 }

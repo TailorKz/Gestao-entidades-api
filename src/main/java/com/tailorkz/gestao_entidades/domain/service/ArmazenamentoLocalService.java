@@ -40,4 +40,15 @@ public class ArmazenamentoLocalService implements ArmazenamentoArquivoService {
             throw new RuntimeException("Falha ao armazenar o arquivo no disco.", e);
         }
     }
+
+    @Override
+    public void deletar(String caminhoArquivo) {
+        try {
+            if (caminhoArquivo != null && !caminhoArquivo.isBlank()) {
+                Files.deleteIfExists(Paths.get(caminhoArquivo));
+            }
+        } catch (Exception e) {
+            // Arquivo pode já não existir; não interrompe a exclusão da despesa
+        }
+    }
 }

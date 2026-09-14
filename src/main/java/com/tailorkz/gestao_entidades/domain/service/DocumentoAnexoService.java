@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -50,5 +51,14 @@ public class DocumentoAnexoService {
         novoAnexo.setChaveS3(arquivo.getOriginalFilename());
 
         return anexoRepository.save(novoAnexo);
+    }
+
+    @Transactional
+    public void removerAnexosDaDespesa(UUID despesaId) {
+        List<DocumentoAnexo> anexos = anexoRepository.findByDespesaId(despesaId);
+        for (DocumentoAnexo anexo : anexos) {
+            armazenamentoService.deletar(anexo.getUrlS3());
+            anexoRepository.delete(anexo);
+        }
     }
 }

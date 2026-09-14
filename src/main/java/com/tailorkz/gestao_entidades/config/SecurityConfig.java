@@ -35,8 +35,11 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource(null)))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/auth/login", "/auth/trocar-senha").permitAll()
-                        .requestMatchers("/despesas/com-anexos", "/anexos/**").authenticated()
+                        .requestMatchers("/auth/login").permitAll()
+                        .requestMatchers("/auth/trocar-senha").permitAll()
+                        .requestMatchers("/error").permitAll()
+                        .requestMatchers("/despesas/com-anexos").authenticated()
+                        .requestMatchers("/anexos/**").authenticated()
                         .requestMatchers("/arquivos/**").authenticated()
                         .requestMatchers("/**").authenticated()
                 )

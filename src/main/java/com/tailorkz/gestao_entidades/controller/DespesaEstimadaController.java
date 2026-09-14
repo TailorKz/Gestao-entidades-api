@@ -56,6 +56,26 @@ public class DespesaEstimadaController {
         return ResponseEntity.ok(lista);
     }
 
+    @PutMapping("/{id}")
+    public ResponseEntity<DespesaEstimadaResponseDTO> editar(@PathVariable UUID id, @RequestBody DespesaEstimadaRequestDTO dto) {
+        DespesaEstimada estimativa = repository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Estimativa não encontrada."));
+        validarParcela(estimativa.getParcela().getId());
+
+        if (dto.descricao() == null || dto.descricao().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Informe a descrição do gasto.");
+        }
+        if (dto.valor() == null || dto.valor().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "O valor do gasto deve ser maior que zero.");
+        }
+
+        estimativa.setDescricao(dto.descricao().trim());
+        estimativa.setValor(dto.valor());
+
+        DespesaEstimada salva = repository.save(estimativa);
+        return ResponseEntity.ok(new DespesaEstimadaResponseDTO(salva.getId(), salva.getDescricao(), salva.getValor()));
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deletar(@PathVariable UUID id) {
         DespesaEstimada estimativa = repository.findById(id)

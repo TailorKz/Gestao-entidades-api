@@ -12,4 +12,6 @@ public interface DespesaRepository extends JpaRepository<Despesa, UUID> {
     List<Despesa> findByParcelaId(UUID parcelaId);
 
     List<Despesa> findByUsuarioId(UUID usuarioId);
+
+    List<Despesa> findByParcelaIdAndUsuarioId(UUID parcelaId, UUID usuarioId);
 }

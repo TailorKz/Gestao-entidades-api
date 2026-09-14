@@ -52,4 +52,10 @@ public class Despesa {
 
     @Column(columnDefinition = "TEXT")
     private String descricao;
+
+    @Column(name = "nome_empresa", length = 200)
+    private String nomeEmpresa;
+
+    @Column(columnDefinition = "TEXT")
+    private String observacao;
 }

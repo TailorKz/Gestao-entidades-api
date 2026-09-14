@@ -28,6 +28,11 @@ spring:
 server:
   port: ${PORT:8080}
 
+logging:
+  level:
+    org.springframework.security: DEBUG
+    org.springframework.web: WARN
+
 app:
   jwt:
     secret: ${JWT_SECRET:ChaveDesenvolvimentoINDACI2026Com32Caracteres!}
