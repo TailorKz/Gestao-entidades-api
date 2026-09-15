@@ -58,9 +58,9 @@ public class LembreteController {
         UUID tenantId = segurancaService.tenantDoLogado();
         int qtd = dias == null || dias.isBlank() ? 7 : Integer.parseInt(dias);
         LocalDate limite = LocalDate.now().plusDays(qtd);
-        List<LembreteResponseDTO> lista = repository.findByTenantIdAndDataGreaterThanEqualOrderByDataAsc(tenantId, LocalDate.now())
+        List<LembreteResponseDTO> lista = repository.findByTenantIdAndDataBetweenOrderByDataAsc(
+                        tenantId, LocalDate.now(), limite)
                 .stream()
-                .filter(l -> !l.getData().isAfter(limite))
                 .map(this::paraDTO)
                 .toList();
         return ResponseEntity.ok(lista);

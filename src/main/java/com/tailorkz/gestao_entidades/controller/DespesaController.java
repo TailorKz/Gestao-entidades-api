@@ -3,7 +3,6 @@ package com.tailorkz.gestao_entidades.controller;
 import com.tailorkz.gestao_entidades.controller.dto.AnexoDTO;
 import com.tailorkz.gestao_entidades.controller.dto.DespesaRequestDTO;
 import com.tailorkz.gestao_entidades.controller.dto.DespesaResponseDTO;
-import com.tailorkz.gestao_entidades.domain.enums.Role;
 import com.tailorkz.gestao_entidades.domain.enums.StatusDespesa;
 import com.tailorkz.gestao_entidades.domain.enums.TipoDocumento;
 import com.tailorkz.gestao_entidades.domain.model.Despesa;
@@ -134,9 +133,7 @@ public class DespesaController {
             @RequestParam("notaFiscal") MultipartFile notaFiscal,
             @RequestParam(value = "anexosExtras", required = false) List<MultipartFile> anexosExtras) {
 
-        if (segurancaService.logado().getRole() == Role.INSTRUTOR) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Somente gestores podem lançar despesas em nome de outros.");
-        }
+        segurancaService.garantirEhGestor("Somente gestores podem lançar despesas em nome de outros.");
 
         BigDecimal valor = parseValor(valorString);
         Parcela parcela = validarParcelaAutenticada(parcelaId);
@@ -232,11 +229,7 @@ public class DespesaController {
         Usuario alvo = usuarioRepository.findById(usuarioId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuário não encontrado."));
 
-        Usuario logado = segurancaService.logado();
-        if (logado.getRole() == Role.INSTRUTOR && !logado.getId().equals(alvo.getId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Acesso negado.");
-        }
-        segurancaService.garantirAcessoTenant(alvo.getTenant().getId());
+        segurancaService.garantirProprioOuGestor(alvo.getId(), alvo.getTenant().getId(), "Acesso negado.");
 
         List<DespesaResponseDTO> despesas = despesaRepository.findByUsuarioId(alvo.getId()).stream()
                 .map(d -> new DespesaResponseDTO(
@@ -255,7 +248,7 @@ public class DespesaController {
     @GetMapping("/{despesaId}/anexos")
     public ResponseEntity<List<AnexoDTO>> listarAnexosDaDespesa(@PathVariable UUID despesaId) {
         Despesa despesa = buscarDespesa(despesaId);
-        validarAcessoDespesa(despesa);
+        segurancaService.garantirAcessoDespesa(despesa);
 
         List<AnexoDTO> anexos = documentoAnexoRepository.findByDespesaId(despesa.getId()).stream()
                 .map(a -> new AnexoDTO(
@@ -269,9 +262,7 @@ public class DespesaController {
 
     @PatchMapping("/{despesaId}/status")
     public ResponseEntity<?> avancarStatus(@PathVariable UUID despesaId, @RequestBody AtualizarStatusDespesaDTO dto) {
-        if (segurancaService.logado().getRole() == Role.INSTRUTOR) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Somente gestores podem alterar o status da prestação.");
-        }
+        segurancaService.garantirEhGestor("Somente gestores podem alterar o status da prestação.");
 
         Despesa despesa = buscarDespesa(despesaId);
         segurancaService.garantirAcessoTenant(despesa.getParcela().getFomento().getTenant().getId());
@@ -305,9 +296,7 @@ public class DespesaController {
 
     @PutMapping("/{despesaId}")
     public ResponseEntity<DespesaResponseDTO> editar(@PathVariable UUID despesaId, @RequestBody EditarDespesaDTO dto) {
-        if (segurancaService.logado().getRole() == Role.INSTRUTOR) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Somente gestores podem editar despesas.");
-        }
+        segurancaService.garantirEhGestor("Somente gestores podem editar despesas.");
 
         Despesa despesa = buscarDespesa(despesaId);
         segurancaService.garantirAcessoTenant(despesa.getParcela().getFomento().getTenant().getId());
@@ -375,9 +364,7 @@ public class DespesaController {
 
     @DeleteMapping("/{despesaId}")
     public ResponseEntity<Void> deletar(@PathVariable UUID despesaId) {
-        if (segurancaService.logado().getRole() == Role.INSTRUTOR) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Somente gestores podem excluir despesas.");
-        }
+        segurancaService.garantirEhGestor("Somente gestores podem excluir despesas.");
 
         Despesa despesa = buscarDespesa(despesaId);
         segurancaService.garantirAcessoTenant(despesa.getParcela().getFomento().getTenant().getId());
@@ -414,28 +401,16 @@ public class DespesaController {
     }
 
     private Usuario validarUsuarioAutenticado(UUID usuarioId) {
-        Usuario logado = segurancaService.logado();
         Usuario usuario = usuarioRepository.findById(usuarioId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuário não encontrado."));
 
-        if (logado.getRole() == Role.INSTRUTOR && !logado.getId().equals(usuarioId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Você só pode registrar despesas em seu próprio nome.");
-        }
-        segurancaService.garantirAcessoTenant(usuario.getTenant().getId());
+        segurancaService.garantirProprioOuGestor(usuarioId, usuario.getTenant().getId(), "Você só pode registrar despesas em seu próprio nome.");
         return usuario;
     }
 
     private Despesa buscarDespesa(UUID despesaId) {
         return despesaRepository.findById(despesaId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Despesa não encontrada."));
-    }
-
-    private void validarAcessoDespesa(Despesa despesa) {
-        Usuario logado = segurancaService.logado();
-        if (logado.getRole() == Role.INSTRUTOR && !logado.getId().equals(despesa.getUsuario().getId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Acesso negado.");
-        }
-        segurancaService.garantirAcessoTenant(despesa.getParcela().getFomento().getTenant().getId());
     }
 
     private void anexar(UUID despesaId, TipoDocumento tipo, MultipartFile arquivo) {

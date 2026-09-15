@@ -43,10 +43,7 @@ public class DashboardController {
         Parcela parcela = parcelaRepository.findById(parcelaId)
                 .orElseThrow(() -> new ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "Parcela não encontrada"));
 
-        if (!segurancaService.ehSuperAdmin()) {
-            segurancaService.garantirAcessoTenant(parcela.getFomento().getTenant().getId());
-        }
-
+        segurancaService.garantirAcessoTenant(parcela.getFomento().getTenant().getId());
         UUID tenantParcela = parcela.getFomento().getTenant().getId();
         com.tailorkz.gestao_entidades.domain.enums.Categoria categoriaParcela = parcela.getFomento().getCategoria();
 

@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.UUID;
 
@@ -37,10 +38,10 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<?> fazerLogin(@RequestBody LoginRequestDTO dto) {
         Usuario usuario = usuarioRepository.findByLogin(dto.login())
-                .orElseThrow(() -> new RuntimeException("Usuário não encontrado."));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Senha incorreta."));
 
         if (!passwordEncoder.matches(dto.senha(), usuario.getSenhaHash())) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Senha incorreta.");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Senha incorreta.");
         }
 
         if (usuario.getPrecisaTrocarSenha()) {
@@ -75,8 +76,15 @@ public class AuthController {
 
     @PostMapping("/trocar-senha")
     public ResponseEntity<?> trocarSenha(@RequestBody NovaSenhaDTO dto) {
+        if (dto.novaSenha() == null || dto.novaSenha().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Informe a nova senha.");
+        }
+        if (dto.novaSenha().length() < 6) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A nova senha deve ter no mínimo 6 caracteres.");
+        }
+
         Usuario usuario = usuarioRepository.findById(dto.usuarioId())
-                .orElseThrow(() -> new RuntimeException("Usuário não encontrado."));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuário não encontrado."));
 
         usuario.setSenhaHash(passwordEncoder.encode(dto.novaSenha()));
         usuario.setPrecisaTrocarSenha(false);

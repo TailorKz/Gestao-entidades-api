@@ -1,6 +1,7 @@
 package com.tailorkz.gestao_entidades.security;
 
 import com.tailorkz.gestao_entidades.domain.enums.Role;
+import com.tailorkz.gestao_entidades.domain.model.Despesa;
 import com.tailorkz.gestao_entidades.domain.model.Usuario;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -35,5 +36,37 @@ public class SegurancaService {
         if (!tenantId.equals(tenantDoLogado())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Acesso negado a outra entidade.");
         }
+    }
+
+    public boolean ehGestor() {
+        return logado().getRole() == Role.SUPER_ADMIN
+                || logado().getRole() == Role.GESTOR_ENTIDADE;
+    }
+
+    public boolean ehInstrutor() {
+        return logado().getRole() == Role.INSTRUTOR;
+    }
+
+    public void garantirEhGestor(String mensagem) {
+        if (!ehGestor()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, mensagem);
+        }
+    }
+
+    public void garantirProprioOuGestor(UUID usuarioId, UUID tenantId, String mensagemParaInstrutor) {
+        Usuario logado = logado();
+        if (logado.getRole() == Role.INSTRUTOR && !logado.getId().equals(usuarioId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, mensagemParaInstrutor);
+        }
+        garantirAcessoTenant(tenantId);
+    }
+
+    public void garantirAcessoDespesa(Despesa despesa) {
+        Usuario logado = logado();
+        if (logado.getRole() == Role.INSTRUTOR
+                && (despesa.getUsuario() == null || !logado.getId().equals(despesa.getUsuario().getId()))) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Acesso negado.");
+        }
+        garantirAcessoTenant(despesa.getParcela().getFomento().getTenant().getId());
     }
 }

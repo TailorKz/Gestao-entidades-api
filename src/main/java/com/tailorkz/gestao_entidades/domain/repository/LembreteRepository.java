@@ -14,4 +14,6 @@ public interface LembreteRepository extends JpaRepository<Lembrete, UUID> {
     List<Lembrete> findByTenantIdAndDataOrderByDataAsc(UUID tenantId, LocalDate data);
 
     List<Lembrete> findByTenantIdAndDataGreaterThanEqualOrderByDataAsc(UUID tenantId, LocalDate data);
+
+    List<Lembrete> findByTenantIdAndDataBetweenOrderByDataAsc(UUID tenantId, LocalDate inicio, LocalDate fim);
 }

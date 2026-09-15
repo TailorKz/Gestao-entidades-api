@@ -25,7 +25,7 @@ public class OcrService {
     @Value("${gemini.api.url:https://generativelanguage.googleapis.com}")
     private String geminiApiUrl;
 
-    @Value("${gemini.api.modelo:gemini-1.5-flash}")
+    @Value("${gemini.api.modelo:gemini-3.5-flash}")
     private String geminiModelo;
 
     private final RestTemplate restTemplate = new RestTemplate();

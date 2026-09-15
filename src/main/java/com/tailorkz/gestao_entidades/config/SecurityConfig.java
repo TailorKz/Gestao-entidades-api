@@ -1,9 +1,12 @@
 package com.tailorkz.gestao_entidades.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tailorkz.gestao_entidades.security.JwtAuthenticationFilter;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -15,32 +18,45 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.time.Instant;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtFilter;
+    private final String origensCors;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public SecurityConfig(JwtAuthenticationFilter jwtFilter) {
+    public SecurityConfig(JwtAuthenticationFilter jwtFilter,
+                          @Value("${app.cors.origens:http://localhost:5173}") String origensCors) {
         this.jwtFilter = jwtFilter;
+        this.origensCors = origensCors;
     }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
-                .cors(cors -> cors.configurationSource(corsConfigurationSource(null)))
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((request, response, authException) -> {
+                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                            respostaJson(response, 401, "Sessão expirada ou não autenticado. Faça login novamente.");
+                        })
+                        .accessDeniedHandler((request, response, deniedException) -> {
+                            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                            respostaJson(response, 403, "Acesso negado.");
+                        }))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/auth/login").permitAll()
                         .requestMatchers("/auth/trocar-senha").permitAll()
                         .requestMatchers("/error").permitAll()
-                        .requestMatchers("/despesas/com-anexos").authenticated()
-                        .requestMatchers("/anexos/**").authenticated()
-                        .requestMatchers("/arquivos/**").authenticated()
                         .requestMatchers("/**").authenticated()
                 )
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
@@ -48,9 +64,9 @@ public class SecurityConfig {
     }
 
     @Bean
-    public CorsConfigurationSource corsConfigurationSource(@Value("${app.cors.origens:http://localhost:5173}") String origens) {
+    public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(Arrays.stream(origens.split(","))
+        config.setAllowedOrigins(Arrays.stream(origensCors.split(","))
                 .map(String::trim).filter(s -> !s.isEmpty()).toList());
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
@@ -65,5 +81,15 @@ public class SecurityConfig {
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    private void respostaJson(HttpServletResponse response, int status, String mensagem) throws java.io.IOException {
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setCharacterEncoding("UTF-8");
+        Map<String, Object> corpo = new LinkedHashMap<>();
+        corpo.put("timestamp", Instant.now().toString());
+        corpo.put("status", status);
+        corpo.put("mensagem", mensagem);
+        response.getWriter().write(objectMapper.writeValueAsString(corpo));
     }
 }

@@ -88,9 +88,7 @@ public class DespesaEstimadaController {
     private Parcela validarParcela(UUID parcelaId) {
         Parcela parcela = parcelaRepository.findById(parcelaId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Parcela não encontrada."));
-        if (!segurancaService.ehSuperAdmin()) {
-            segurancaService.garantirAcessoTenant(parcela.getFomento().getTenant().getId());
-        }
+        segurancaService.garantirAcessoTenant(parcela.getFomento().getTenant().getId());
         return parcela;
     }
 }

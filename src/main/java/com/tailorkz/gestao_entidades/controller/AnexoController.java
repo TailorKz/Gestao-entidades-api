@@ -1,7 +1,7 @@
 package com.tailorkz.gestao_entidades.controller;
 
+import com.tailorkz.gestao_entidades.controller.dto.AnexoDTO;
 import com.tailorkz.gestao_entidades.controller.dto.DadosNotaDTO;
-import com.tailorkz.gestao_entidades.domain.enums.Role;
 import com.tailorkz.gestao_entidades.domain.enums.TipoDocumento;
 import com.tailorkz.gestao_entidades.domain.model.Despesa;
 import com.tailorkz.gestao_entidades.domain.model.DocumentoAnexo;
@@ -38,14 +38,19 @@ public class AnexoController {
     }
 
     @PostMapping
-    public ResponseEntity<DocumentoAnexo> fazerUpload(
+    public ResponseEntity<AnexoDTO> fazerUpload(
             @RequestParam("despesaId") UUID despesaId,
             @RequestParam("tipo") TipoDocumento tipo,
             @RequestParam("arquivo") MultipartFile arquivo) {
 
         validarAcesso(despesaId);
         DocumentoAnexo anexoSalvo = anexoService.anexarArquivo(despesaId, tipo, arquivo);
-        return ResponseEntity.status(HttpStatus.CREATED).body(anexoSalvo);
+        AnexoDTO dto = new AnexoDTO(
+                anexoSalvo.getId(),
+                anexoSalvo.getTipo().name(),
+                anexoSalvo.getChaveS3(),
+                anexoSalvo.getUrlS3());
+        return ResponseEntity.status(HttpStatus.CREATED).body(dto);
     }
 
     @PostMapping("/ler-nota")
@@ -57,11 +62,6 @@ public class AnexoController {
     private void validarAcesso(UUID despesaId) {
         Despesa despesa = despesaRepository.findById(despesaId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Despesa não encontrada."));
-
-        var logado = segurancaService.logado();
-        if (logado.getRole() == Role.INSTRUTOR && !logado.getId().equals(despesa.getUsuario().getId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Acesso negado.");
-        }
-        segurancaService.garantirAcessoTenant(despesa.getParcela().getFomento().getTenant().getId());
+        segurancaService.garantirAcessoDespesa(despesa);
     }
 }
