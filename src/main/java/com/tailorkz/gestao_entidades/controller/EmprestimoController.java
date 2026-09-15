@@ -108,8 +108,9 @@ public class EmprestimoController {
         if (dto.getDataRetirada() != null) {
             emprestimo.setDataRetirada(dto.getDataRetirada());
         }
-        if (dto.getDataEntrega() != null) {
-            emprestimo.setDataEntrega(dto.getDataEntrega());
+        if (dto.dataEntrega() != null) {
+            String entrega = dto.dataEntrega().trim();
+            emprestimo.setDataEntrega(entrega.isEmpty() ? null : LocalDate.parse(entrega));
         }
 
         Emprestimo salvo = repository.save(emprestimo);

@@ -8,10 +8,12 @@ import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -36,6 +38,14 @@ public class OcrService {
             PDFTextStripper stripper = new PDFTextStripper();
             String textoPdf = stripper.getText(document).replaceAll("\r", "");
 
+            // 1. DETECÇÃO DE DOCUMENTO DIGITALIZADO (IMAGEM)
+            if (textoPdf.trim().isEmpty()) {
+                throw new ResponseStatusException(
+                        HttpStatus.UNPROCESSABLE_ENTITY,
+                        "Documento digitalizado ou sem texto legível. Por favor, preencha os dados manualmente."
+                );
+            }
+
             System.out.println("=== O QUE O ROBO LEU DO PDF ===");
             System.out.println(textoPdf);
 
@@ -43,19 +53,27 @@ public class OcrService {
             DadosNotaDTO dadosLocais;
 
             if (textoUpper.contains("DANFSE") || textoUpper.contains("PRESTADOR") || textoUpper.contains("NFS-E")) {
-                dadosLocais = lerNotaServicoUnificada(textoPdf); // Rota única para qualquer Prefeitura
+                dadosLocais = lerNotaServicoUnificada(textoPdf);
             } else {
-                dadosLocais = lerNotaProduto(textoPdf); // Rota NF-e (Produto/MercadoLivre)
+                dadosLocais = lerNotaProduto(textoPdf);
             }
 
-            if (dadosLocais.valor().isEmpty() || dadosLocais.numero().isEmpty() || dadosLocais.emitente().isEmpty()) {
-                System.out.println("⚠️ Regex local falhou. Acionando a IA do Gemini como Fallback...");
+            // 2. CONDIÇÃO ATUALIZADA PARA O FALLBACK (Pegando o 0,00)
+            boolean precisaIA = dadosLocais.valor().isEmpty()
+                    || dadosLocais.valor().equals("0,00")
+                    || dadosLocais.numero().isEmpty()
+                    || dadosLocais.emitente().isEmpty();
+
+            if (precisaIA) {
+                System.out.println("  Dados incompletos ou valor 0,00. Acionando a IA do Gemini como Fallback...");
                 return extrairComIA(textoPdf, dadosLocais);
             }
 
-            System.out.println("✅ Leitura concluída via Regex (Custo: Zero).");
+            System.out.println("  Leitura concluída via Regex (Custo: Zero).");
             return dadosLocais;
 
+        } catch (ResponseStatusException e) {
+            throw e; // Repassa a exceção de documento digitalizado para o Controller
         } catch (Exception e) {
             throw new RuntimeException("Falha ao processar o PDF", e);
         }
@@ -63,48 +81,70 @@ public class OcrService {
 
     private DadosNotaDTO extrairComIA(String texto, DadosNotaDTO fallbackLocal) {
         if (geminiApiKey == null || geminiApiKey.isEmpty() || geminiApiKey.contains("COLE_SUA_CHAVE")) {
-            System.out.println("❌ Chave do Gemini inválida ou vazia. Abortando Fallback.");
+            System.out.println("  Chave do Gemini vazia. Abortando Fallback.");
             return fallbackLocal;
         }
 
         try {
             String url = geminiApiUrl + "/v1beta/models/" + geminiModelo + ":generateContent?key=" + geminiApiKey;
+            String textoSeguro = texto.replace("\n", " ").replace("\r", "").replaceAll("[\\x00-\\x1F]", "");
 
-            // Tratamento pesado para impedir que o PDF quebre o JSON do Google
-            String textoSeguro = texto.replace("\"", "\\\"").replace("\n", " ").replace("\r", "").replaceAll("[\\x00-\\x1F]", "");
+            String prompt = "Você é um assistente de extração de notas fiscais. Extraia os dados do texto a seguir. " +
+                    "Devolva APENAS um JSON válido e estrito. Não inclua markdown, blocos de código ou explicações. " +
+                    "Formato exigido: {\"emitente\": \"nome\", \"valor\": \"1500,00\", \"data\": \"YYYY-MM-DD\", \"numero\": \"numero puro\", \"descricao\": \"\"}. " +
+                    "Se um dado não existir, deixe a string vazia. Texto: " + textoSeguro;
 
-            String prompt = "Extraia os dados desta nota fiscal. Devolva APENAS um JSON válido. " +
-                    "Formato: {\"emitente\": \"\", \"valor\": \"1500,00\", \"data\": \"YYYY-MM-DD\", \"numero\": \"numero puro\", \"descricao\": \"\"}. " +
-                    "Texto: " + textoSeguro;
-
-            String requestBody = "{ \"contents\": [{ \"parts\": [{\"text\": \"" + prompt + "\"}] }] }";
+            java.util.Map<String, Object> bodyMap = java.util.Map.of(
+                    "contents", java.util.List.of(
+                            java.util.Map.of("parts", java.util.List.of(
+                                    java.util.Map.of("text", prompt)
+                            ))
+                    )
+            );
+            String requestBody = objectMapper.writeValueAsString(bodyMap);
 
             HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            org.springframework.http.HttpEntity<String> entity = new org.springframework.http.HttpEntity<>(requestBody, headers);
 
-            String response = restTemplate.postForObject(url, entity, String.class);
+            // LOOP DE SEGURANÇA: Tenta até 3 vezes antes de desistir
+            int maxTentativas = 3;
+            for (int tentativa = 1; tentativa <= maxTentativas; tentativa++) {
+                try {
+                    String response = restTemplate.postForObject(url, entity, String.class);
+                    com.fasterxml.jackson.databind.JsonNode rootNode = objectMapper.readTree(response);
 
-            JsonNode rootNode = objectMapper.readTree(response);
-            String respostaIA = rootNode.path("candidates").get(0).path("content").path("parts").get(0).path("text").asText();
-            respostaIA = respostaIA.replace("```json", "").replace("```", "").trim();
+                    String respostaIA = rootNode.path("candidates").get(0).path("content").path("parts").get(0).path("text").asText();
+                    respostaIA = respostaIA.replace("```json", "").replace("```", "").trim();
+                    com.fasterxml.jackson.databind.JsonNode notaJson = objectMapper.readTree(respostaIA);
 
-            JsonNode notaJson = objectMapper.readTree(respostaIA);
+                    System.out.println("  Dados recuperados com sucesso pela IA!");
+                    return new DadosNotaDTO(
+                            notaJson.path("emitente").asText(),
+                            notaJson.path("valor").asText(),
+                            notaJson.path("data").asText(),
+                            notaJson.path("numero").asText(),
+                            notaJson.path("descricao").asText()
+                    );
 
-            System.out.println("🧠 Dados recuperados com sucesso pela IA!");
-            return new DadosNotaDTO(
-                    notaJson.path("emitente").asText(),
-                    notaJson.path("valor").asText(),
-                    notaJson.path("data").asText(),
-                    notaJson.path("numero").asText(),
-                    notaJson.path("descricao").asText()
-            );
+                } catch (org.springframework.web.client.HttpServerErrorException.ServiceUnavailable |
+                         org.springframework.web.client.HttpServerErrorException.GatewayTimeout e) {
+                    System.out.println("  [API Ocupada 503] Tentativa " + tentativa + " falhou. Retentando em 2s...");
+                    if (tentativa == maxTentativas) {
+                        System.err.println("  Desistindo após " + maxTentativas + " tentativas.");
+                        return fallbackLocal;
+                    }
+                    Thread.sleep(2000); // Pausa a execução por 2 segundos antes do próximo loop
+                }
+            }
 
         } catch (Exception e) {
-            System.err.println("Erro ao consultar a IA: " + e.getMessage());
-            return fallbackLocal;
+            System.err.println("Erro geral ao consultar a IA: " + e.getMessage());
         }
+
+        return fallbackLocal;
     }
+
 
     // --- REGRA UNIFICADA DE PREFEITURA (V1.0 e V2.0) ---
     private DadosNotaDTO lerNotaServicoUnificada(String texto) {
