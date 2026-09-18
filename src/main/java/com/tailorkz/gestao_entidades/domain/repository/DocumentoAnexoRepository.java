@@ -13,5 +13,7 @@ public interface DocumentoAnexoRepository extends JpaRepository<DocumentoAnexo, 
 
     List<DocumentoAnexo> findByDespesaId(UUID despesaId);
 
+    List<DocumentoAnexo> findByDespesaIdAndTipo(UUID despesaId, TipoDocumento tipo);
+
     boolean existsByDespesaIdAndTipo(UUID despesaId, TipoDocumento tipo);
 }

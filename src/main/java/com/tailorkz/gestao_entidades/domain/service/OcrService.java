@@ -2,6 +2,7 @@ package com.tailorkz.gestao_entidades.domain.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tailorkz.gestao_entidades.controller.dto.DadosComprovanteDTO;
 import com.tailorkz.gestao_entidades.controller.dto.DadosNotaDTO;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -91,7 +92,7 @@ public class OcrService {
 
             String prompt = "Você é um assistente de extração de notas fiscais. Extraia os dados do texto a seguir. " +
                     "Devolva APENAS um JSON válido e estrito. Não inclua markdown, blocos de código ou explicações. " +
-                    "Formato exigido: {\"emitente\": \"nome\", \"valor\": \"1500,00\", \"data\": \"YYYY-MM-DD\", \"numero\": \"numero puro\", \"descricao\": \"\"}. " +
+                    "Formato exigido: {\"emitente\": \"nome\", \"valor\": \"1500,00\", \"data\": \"YYYY-MM-DD\", \"numero\": \"numero puro\", \"descricao\": \"\", \"documento\": \"CPF ou CNPJ do emitente\"}. " +
                     "Se um dado não existir, deixe a string vazia. Texto: " + textoSeguro;
 
             java.util.Map<String, Object> bodyMap = java.util.Map.of(
@@ -124,7 +125,8 @@ public class OcrService {
                             notaJson.path("valor").asText(),
                             notaJson.path("data").asText(),
                             notaJson.path("numero").asText(),
-                            notaJson.path("descricao").asText()
+                            notaJson.path("descricao").asText(),
+                            limparDocumento(notaJson.path("documento").asText())
                     );
 
                 } catch (org.springframework.web.client.HttpServerErrorException.ServiceUnavailable |
@@ -171,7 +173,7 @@ public class OcrService {
 
         String descricao = extrairPorRegex(texto, "DESCRIÇÃO\\s*DO\\s*SERVIÇO[\\s\\S]*?\\n(.*?)\\n");
 
-        return new DadosNotaDTO(emitente, valor, data, numero, descricao);
+        return new DadosNotaDTO(emitente, valor, data, numero, descricao, extrairDocumento(texto));
     }
 
     // -- O MOTOR DE BUSCA (Ajustado para entender acentos) --
@@ -199,7 +201,124 @@ public class OcrService {
         String numero = numeroBruto.replace(".", "").replaceFirst("^0+(?!$)", "");
         String descricao = emitente.isEmpty() ? "Despesa com Produtos" : "Aquisição: " + emitente;
 
-        return new DadosNotaDTO(emitente, valor, data, numero, descricao);
+        return new DadosNotaDTO(emitente, valor, data, numero, descricao, extrairDocumento(texto));
     }
 
+    // --- LEITOR DE COMPROVANTES DO BANCO DO BRASIL (PIX, Boletos e Tributos) ---
+    public DadosComprovanteDTO extrairDadosComprovante(byte[] conteudoPdf, String nomeArquivo) {
+        try (PDDocument document = PDDocument.load(conteudoPdf)) {
+            PDFTextStripper stripper = new PDFTextStripper();
+            String textoPdf = stripper.getText(document).replaceAll("\r", "");
+
+            if (textoPdf.trim().isEmpty()) {
+                return extrairComprovanteComIA(textoPdf);
+            }
+
+            System.out.println("=== COMPROVANTE BB: " + nomeArquivo + " ===");
+            System.out.println(textoPdf);
+
+            String valor = extrairPorRegex(textoPdf, "(?i)valor[^\\n]*R\\$\\s*([\\d.]+,[\\d]{2})");
+            if (valor.isEmpty()) valor = extrairPorRegex(textoPdf, "R\\$\\s*([\\d.]+,[\\d]{2})");
+            if (valor.isEmpty()) valor = extrairPorRegex(textoPdf, "(?i)valor[^\\n]*\\s*([\\d.]+,[\\d]{2})");
+
+            String favorCnpj = "(\\d{2}\\.\\d{3}\\.\\d{3}/\\d{4}-\\d{2})";
+            String documento = extrairPorRegex(textoPdf, "(?i)pago\\s+para[^\\n]*\\n\\s*cnpj[^\\n]*\\s*" + favorCnpj);
+            if (documento.isEmpty()) documento = extrairPorRegex(textoPdf, "(?i)favorecido[^\\n]*\\n\\s*[^\\n]+\\n\\s*cnpj[^\\n]*\\s*" + favorCnpj);
+            if (documento.isEmpty()) documento = extrairPorRegex(textoPdf, "(?i)documento\\s*:\\s*(" + favorCnpj + "|\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2})");
+            if (documento.isEmpty()) documento = extrairDocumento(textoPdf);
+            documento = limparDocumento(documento);
+
+            String favorecido = extrairPorRegex(textoPdf, "(?i)nome\\s+do\\s+favorecido[^\\n]*\\n\\s*([^\\n]+)");
+            if (favorecido.isEmpty()) favorecido = extrairPorRegex(textoPdf, "(?i)pago\\s+para\\s*:\\s*([^\\n]+)");
+            if (favorecido.isEmpty()) favorecido = extrairPorRegex(textoPdf, "(?i)transferido\\s+para[^\\n]*\\n\\s*cliente\\s*:\\s*([^\\n]+)");
+            if (favorecido.isEmpty()) favorecido = extrairPorRegex(textoPdf, "(?i)favorecido\\s*:\\s*([^\\n]+)");
+            if (favorecido.isEmpty()) favorecido = extrairPorRegex(textoPdf, "(?i)denomina[cç][aã]o\\s+social\\s*/\\s*nome[^\\n]*\\n\\s*([^\\n]+)");
+            if (favorecido.isEmpty()) favorecido = extrairPorRegex(textoPdf, "(?i)nome\\s+do\\s+pagador[^\\n]*\\n\\s*([^\\n]+)");
+            favorecido = favorecido.replaceAll("\\s+", " ").trim();
+
+            String autenticacao = extrairPorRegex(textoPdf, "(?i)autentica[cç][aã]o[^\\n]*?\\s*([A-Z0-9][A-Z0-9.()+\\-]{7,})");
+            if (autenticacao.isEmpty()) autenticacao = extrairPorRegex(textoPdf, "(?i)c[óo]digo\\s+de\\s+transa[cç][aã]o[^\\n]*?\\s*([A-Z0-9][A-Z0-9.()+\\-]{7,})");
+
+            String data = extrairPorRegex(textoPdf, "(?i)data[^\\n]*\\s*(\\d{2}/\\d{2}/\\d{4})");
+            if (data.isEmpty()) data = extrairPorRegex(textoPdf, "(\\d{2}/\\d{2}/\\d{4})");
+
+            if (valor.isEmpty() || favorecido.isEmpty()) {
+                return extrairComprovanteComIA(textoPdf);
+            }
+
+            return new DadosComprovanteDTO(valor, data, favorecido, documento, autenticacao);
+
+        } catch (Exception e) {
+            throw new RuntimeException("Falha ao processar o comprovante " + nomeArquivo, e);
+        }
+    }
+
+    private DadosComprovanteDTO extrairComprovanteComIA(String texto) {
+        if (geminiApiKey == null || geminiApiKey.isEmpty() || geminiApiKey.contains("COLE_SUA_CHAVE")) {
+            return new DadosComprovanteDTO("", "", "", "", "");
+        }
+        try {
+            String textoSeguro = texto.replace("\n", " ").replace("\r", "").replaceAll("[\\x00-\\x1F]", "");
+            String prompt = "Você é um assistente de leitura de comprovantes bancários do Banco do Brasil (PIX, transferência TED/DOC, boleto ou tributo). " +
+                    "Devolva APENAS um JSON válido e estrito: " +
+                    "{\"valor\": \"843,18\", \"data\": \"DD/MM/AAAA\", \"favorecido\": \"nome\", \"documento\": \"CPF ou CNPJ\", \"autenticacao\": \"código\"}. " +
+                    "Se um dado não existir, deixe a string vazia. Texto: " + textoSeguro;
+
+            String respostaIA = consultarGemini(prompt);
+            com.fasterxml.jackson.databind.JsonNode json = objectMapper.readTree(respostaIA);
+
+            return new DadosComprovanteDTO(
+                    json.path("valor").asText(),
+                    json.path("data").asText(),
+                    json.path("favorecido").asText(),
+                    limparDocumento(json.path("documento").asText()),
+                    json.path("autenticacao").asText()
+            );
+        } catch (Exception e) {
+            System.err.println("Erro ao consultar IA para comprovante: " + e.getMessage());
+            return new DadosComprovanteDTO("", "", "", "", "");
+        }
+    }
+
+    private String consultarGemini(String prompt) throws Exception {
+        String url = geminiApiUrl + "/v1beta/models/" + geminiModelo + ":generateContent?key=" + geminiApiKey;
+        java.util.Map<String, Object> bodyMap = java.util.Map.of(
+                "contents", java.util.List.of(java.util.Map.of("parts", java.util.List.of(java.util.Map.of("text", prompt))))
+        );
+        String requestBody = objectMapper.writeValueAsString(bodyMap);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+
+        int maxTentativas = 3;
+        for (int tentativa = 1; tentativa <= maxTentativas; tentativa++) {
+            try {
+                String response = restTemplate.postForObject(url, entity, String.class);
+                JsonNode rootNode = objectMapper.readTree(response);
+                String respostaIA = rootNode.path("candidates").get(0).path("content").path("parts").get(0).path("text").asText();
+                return respostaIA.replace("```json", "").replace("```", "").trim();
+            } catch (org.springframework.web.client.HttpServerErrorException.ServiceUnavailable |
+                     org.springframework.web.client.HttpServerErrorException.GatewayTimeout e) {
+                if (tentativa == maxTentativas) return "";
+                Thread.sleep(2000);
+            }
+        }
+        return "";
+    }
+
+    // --- CNPJ / CPF dos documentos (comprovantes e notas) ---
+    private String extrairDocumento(String texto) {
+        if (texto == null) return "";
+        String cnpj = extrairPorRegex(texto, "(\\d{2}\\.\\d{3}\\.\\d{3}/\\d{4}-\\d{2})");
+        if (!cnpj.isEmpty()) return limparDocumento(cnpj);
+        String cpf = extrairPorRegex(texto, "(\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2})");
+        if (!cpf.isEmpty()) return limparDocumento(cpf);
+        return "";
+    }
+
+    private String limparDocumento(String documento) {
+        if (documento == null) return "";
+        return documento.replaceAll("[^0-9]", "");
+    }
 }

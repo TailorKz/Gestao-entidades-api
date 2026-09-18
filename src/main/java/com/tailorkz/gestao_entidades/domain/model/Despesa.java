@@ -56,6 +56,9 @@ public class Despesa {
     @Column(name = "nome_empresa", length = 200)
     private String nomeEmpresa;
 
+    @Column(name = "documento_favorecido", length = 30)
+    private String documentoFavorecido;
+
     @Column(columnDefinition = "TEXT")
     private String observacao;
 }

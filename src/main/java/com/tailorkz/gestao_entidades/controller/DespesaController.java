@@ -1,19 +1,24 @@
 package com.tailorkz.gestao_entidades.controller;
 
 import com.tailorkz.gestao_entidades.controller.dto.AnexoDTO;
+import com.tailorkz.gestao_entidades.controller.dto.ComprovanteDTO;
 import com.tailorkz.gestao_entidades.controller.dto.DespesaRequestDTO;
 import com.tailorkz.gestao_entidades.controller.dto.DespesaResponseDTO;
+import com.tailorkz.gestao_entidades.controller.dto.GerrPrestacaoDTO;
 import com.tailorkz.gestao_entidades.domain.enums.StatusDespesa;
 import com.tailorkz.gestao_entidades.domain.enums.TipoDocumento;
+import com.tailorkz.gestao_entidades.domain.model.ComprovanteBb;
 import com.tailorkz.gestao_entidades.domain.model.Despesa;
 import com.tailorkz.gestao_entidades.domain.model.DespesaEstimada;
 import com.tailorkz.gestao_entidades.domain.model.Parcela;
 import com.tailorkz.gestao_entidades.domain.model.Usuario;
+import com.tailorkz.gestao_entidades.domain.repository.ComprovanteBbRepository;
 import com.tailorkz.gestao_entidades.domain.repository.DespesaEstimadaRepository;
 import com.tailorkz.gestao_entidades.domain.repository.DespesaRepository;
 import com.tailorkz.gestao_entidades.domain.repository.DocumentoAnexoRepository;
 import com.tailorkz.gestao_entidades.domain.repository.ParcelaRepository;
 import com.tailorkz.gestao_entidades.domain.repository.UsuarioRepository;
+import com.tailorkz.gestao_entidades.domain.service.ConciliacaoService;
 import com.tailorkz.gestao_entidades.domain.service.DespesaService;
 import com.tailorkz.gestao_entidades.domain.service.DocumentoAnexoService;
 import com.tailorkz.gestao_entidades.security.SegurancaService;
@@ -25,8 +30,11 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -42,6 +50,8 @@ public class DespesaController {
     private final ParcelaRepository parcelaRepository;
     private final UsuarioRepository usuarioRepository;
     private final DespesaEstimadaRepository despesaEstimadaRepository;
+    private final ComprovanteBbRepository comprovanteBbRepository;
+    private final ConciliacaoService conciliacaoService;
     private final SegurancaService segurancaService;
 
     public DespesaController(DespesaService despesaService,
@@ -51,6 +61,8 @@ public class DespesaController {
                              ParcelaRepository parcelaRepository,
                              UsuarioRepository usuarioRepository,
                              DespesaEstimadaRepository despesaEstimadaRepository,
+                             ComprovanteBbRepository comprovanteBbRepository,
+                             ConciliacaoService conciliacaoService,
                              SegurancaService segurancaService) {
         this.despesaService = despesaService;
         this.despesaRepository = despesaRepository;
@@ -59,6 +71,8 @@ public class DespesaController {
         this.parcelaRepository = parcelaRepository;
         this.usuarioRepository = usuarioRepository;
         this.despesaEstimadaRepository = despesaEstimadaRepository;
+        this.comprovanteBbRepository = comprovanteBbRepository;
+        this.conciliacaoService = conciliacaoService;
         this.segurancaService = segurancaService;
     }
 
@@ -88,6 +102,7 @@ public class DespesaController {
             @RequestParam("dataEmissao") String dataEmissao,
             @RequestParam("numero") String numero,
             @RequestParam("descricao") String descricao,
+            @RequestParam(value = "documentoFavorecido", required = false) String documentoFavorecido,
             @RequestParam("notaFiscal") MultipartFile notaFiscal,
             @RequestParam(value = "anexosExtras", required = false) List<MultipartFile> anexosExtras) {
 
@@ -103,6 +118,7 @@ public class DespesaController {
         novaDespesa.setDataEmissao(LocalDate.parse(dataEmissao));
         novaDespesa.setNumeroDocumento(numero);
         novaDespesa.setDescricao(descricao);
+        novaDespesa.setDocumentoFavorecido(limparDocumento(documentoFavorecido));
         novaDespesa.setParcela(parcela);
         novaDespesa.setUsuario(usuario);
 
@@ -130,6 +146,7 @@ public class DespesaController {
             @RequestParam("descricao") String descricao,
             @RequestParam(value = "nomeEmpresa", required = false) String nomeEmpresa,
             @RequestParam(value = "observacao", required = false) String observacao,
+            @RequestParam(value = "documentoFavorecido", required = false) String documentoFavorecido,
             @RequestParam("notaFiscal") MultipartFile notaFiscal,
             @RequestParam(value = "anexosExtras", required = false) List<MultipartFile> anexosExtras) {
 
@@ -157,6 +174,7 @@ public class DespesaController {
         novaDespesa.setUsuario(usuario);
         novaDespesa.setNomeEmpresa(avulso ? nomeEmpresa.trim() : null);
         novaDespesa.setObservacao(observacao != null && !observacao.isBlank() ? observacao.trim() : null);
+        novaDespesa.setDocumentoFavorecido(limparDocumento(documentoFavorecido));
 
         Despesa despesaSalva = despesaService.registrarNovaDespesa(novaDespesa);
 
@@ -194,16 +212,7 @@ public class DespesaController {
 
         List<DespesaResponseDTO> despesas = despesaRepository.findByParcelaIdAndUsuarioId(parcela.getId(), instrutor.getId())
                 .stream()
-                .map(d -> new DespesaResponseDTO(
-                        d.getId(),
-                        d.getValor(),
-                        d.getDataCompetencia().toString(),
-                        d.getStatus().name(),
-                        d.getUsuario() != null ? d.getUsuario().getNome() : null,
-                        d.getNomeEmpresa(),
-                        d.getObservacao(),
-                        d.getEmitente()
-                )).toList();
+                .map(this::paraDTO).toList();
         return ResponseEntity.ok(despesas);
     }
 
@@ -211,16 +220,7 @@ public class DespesaController {
     public ResponseEntity<List<DespesaResponseDTO>> listarPorParcela(@PathVariable UUID parcelaId) {
         Parcela parcela = validarParcelaAutenticada(parcelaId);
         List<DespesaResponseDTO> despesas = despesaRepository.findByParcelaId(parcela.getId()).stream()
-                .map(d -> new DespesaResponseDTO(
-                        d.getId(),
-                        d.getValor(),
-                        d.getDataCompetencia().toString(),
-                        d.getStatus().name(),
-                        d.getUsuario() != null ? d.getUsuario().getNome() : null,
-                        d.getNomeEmpresa(),
-                        d.getObservacao(),
-                        d.getEmitente()
-                )).toList();
+                .map(this::paraDTO).toList();
         return ResponseEntity.ok(despesas);
     }
 
@@ -232,16 +232,7 @@ public class DespesaController {
         segurancaService.garantirProprioOuGestor(alvo.getId(), alvo.getTenant().getId(), "Acesso negado.");
 
         List<DespesaResponseDTO> despesas = despesaRepository.findByUsuarioId(alvo.getId()).stream()
-                .map(d -> new DespesaResponseDTO(
-                        d.getId(),
-                        d.getValor(),
-                        d.getDataCompetencia().toString(),
-                        d.getStatus().name(),
-                        d.getUsuario() != null ? d.getUsuario().getNome() : null,
-                        d.getNomeEmpresa(),
-                        d.getObservacao(),
-                        d.getEmitente()
-                )).toList();
+                .map(this::paraDTO).toList();
         return ResponseEntity.ok(despesas);
     }
 
@@ -282,16 +273,7 @@ public class DespesaController {
 
         despesa.setStatus(destino);
         Despesa salva = despesaRepository.save(despesa);
-        return ResponseEntity.ok(new DespesaResponseDTO(
-                salva.getId(),
-                salva.getValor(),
-                salva.getDataCompetencia().toString(),
-                salva.getStatus().name(),
-                salva.getUsuario() != null ? salva.getUsuario().getNome() : null,
-                salva.getNomeEmpresa(),
-                salva.getObservacao(),
-                salva.getEmitente()
-        ));
+        return ResponseEntity.ok(paraDTO(salva));
     }
 
     @PutMapping("/{despesaId}")
@@ -323,6 +305,9 @@ public class DespesaController {
             despesa.setNomeEmpresa(dto.nomeEmpresa().trim());
         }
         if (dto.observacao() != null) despesa.setObservacao(dto.observacao().isEmpty() ? null : dto.observacao().trim());
+        if (dto.documentoFavorecido() != null) {
+            despesa.setDocumentoFavorecido(limparDocumento(dto.documentoFavorecido()));
+        }
 
         Despesa salva = despesaRepository.save(despesa);
         parcela.setSaldoAtual(saldoAjustado.subtract(dto.valor()));
@@ -350,16 +335,7 @@ public class DespesaController {
                     });
         }
 
-        return ResponseEntity.ok(new DespesaResponseDTO(
-                salva.getId(),
-                salva.getValor(),
-                salva.getDataCompetencia().toString(),
-                salva.getStatus().name(),
-                salva.getUsuario() != null ? salva.getUsuario().getNome() : null,
-                salva.getNomeEmpresa(),
-                salva.getObservacao(),
-                salva.getEmitente()
-        ));
+        return ResponseEntity.ok(paraDTO(salva));
     }
 
     @DeleteMapping("/{despesaId}")
@@ -391,6 +367,86 @@ public class DespesaController {
 
         despesaRepository.deleteById(despesa.getId());
         return ResponseEntity.noContent().build();
+    }
+
+    // --- CONCILIAÇÃO BANCÁRIA (Comprovantes Banco do Brasil) ---
+
+    @PostMapping(value = "/conciliacao/processar-lote", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ConciliacaoService.ConciliacaoResultado> processarLote(
+            @RequestParam("parcelaId") UUID parcelaId,
+            @RequestParam("arquivos") List<MultipartFile> arquivos) {
+        Parcela parcela = validarParcelaAutenticada(parcelaId);
+        segurancaService.garantirEhGestor("Somente gestores podem conciliar comprovantes.");
+        return ResponseEntity.ok(conciliacaoService.processarLote(parcela, arquivos));
+    }
+
+    @PostMapping("/conciliacao/vincular")
+    public ResponseEntity<ComprovanteDTO> vincularComprovante(@RequestBody VincularComprovanteDTO dto) {
+        segurancaService.garantirEhGestor("Somente gestores podem vincular comprovantes.");
+        Parcela parcela = validarParcelaAutenticada(dto.parcelaId());
+        return ResponseEntity.ok(conciliacaoService.vincularManual(parcela, dto.comprovanteId(), dto.despesaId()));
+    }
+
+    @PostMapping(value = "/{despesaId}/anexar-comprovante", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<DespesaResponseDTO> anexarComprovante(
+            @PathVariable UUID despesaId,
+            @RequestParam("arquivo") MultipartFile arquivo) {
+        segurancaService.garantirEhGestor("Somente gestores podem anexar comprovantes.");
+        Despesa despesa = buscarDespesa(despesaId);
+        segurancaService.garantirAcessoTenant(despesa.getParcela().getFomento().getTenant().getId());
+        return ResponseEntity.ok(paraDTO(conciliacaoService.anexarComprovanteManualmente(despesa, arquivo)));
+    }
+
+    @GetMapping("/{parcelaId}/comprovantes-pendentes")
+    public ResponseEntity<List<ComprovanteDTO>> comprovantesPendentes(@PathVariable UUID parcelaId) {
+        Parcela parcela = validarParcelaAutenticada(parcelaId);
+        return ResponseEntity.ok(conciliacaoService.listarPendentes(parcela.getId()));
+    }
+
+    @GetMapping("/gerr/parcela/{parcelaId}/prontas-para-envio")
+    public ResponseEntity<List<GerrPrestacaoDTO>> prontasParaEnvio(@PathVariable UUID parcelaId) {
+        Parcela parcela = validarParcelaAutenticada(parcelaId);
+        List<GerrPrestacaoDTO> lista = despesaRepository.findByParcelaId(parcela.getId()).stream()
+                .filter(d -> d.getStatus() == StatusDespesa.MATCH_REALIZADO)
+                .map(this::paraGerr)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        return ResponseEntity.ok(lista);
+    }
+
+    private GerrPrestacaoDTO paraGerr(Despesa despesa) {
+        String urlNota = urlDoAnexo(despesa.getId(), TipoDocumento.NOTA_FISCAL);
+        String urlComprovante = urlDoAnexo(despesa.getId(), TipoDocumento.COMPROVANTE_PAGAMENTO);
+        if (urlNota == null || urlComprovante == null) return null;
+
+        String dataPagamento = comprovanteBbRepository.findByDespesaId(despesa.getId()).stream()
+                .map(com.tailorkz.gestao_entidades.domain.model.ComprovanteBb::getDataPagamento)
+                .filter(java.util.Objects::nonNull)
+                .findFirst()
+                .map(LocalDate::toString)
+                .orElse(null);
+
+        String favorecido = despesa.getNomeEmpresa() != null && !despesa.getNomeEmpresa().isBlank()
+                ? despesa.getNomeEmpresa() : despesa.getEmitente();
+
+        return new GerrPrestacaoDTO(
+                despesa.getId(),
+                favorecido,
+                despesa.getNumeroDocumento(),
+                despesa.getDocumentoFavorecido(),
+                despesa.getDataEmissao() != null ? despesa.getDataEmissao().toString() : null,
+                dataPagamento,
+                despesa.getValor().toString(),
+                urlNota,
+                urlComprovante
+        );
+    }
+
+    private String urlDoAnexo(UUID despesaId, TipoDocumento tipo) {
+        var anexo = documentoAnexoRepository.findByDespesaIdAndTipo(despesaId, tipo).stream().findFirst().orElse(null);
+        if (anexo == null || anexo.getUrlS3() == null) return null;
+        String nome = Paths.get(anexo.getUrlS3()).getFileName().toString();
+        return "/arquivos/" + nome;
     }
 
     private Parcela validarParcelaAutenticada(UUID parcelaId) {
@@ -428,8 +484,17 @@ public class DespesaController {
                 despesa.getUsuario() != null ? despesa.getUsuario().getNome() : null,
                 despesa.getNomeEmpresa(),
                 despesa.getObservacao(),
-                despesa.getEmitente()
+                despesa.getEmitente(),
+                despesa.getDocumentoFavorecido(),
+                documentoAnexoRepository.existsByDespesaIdAndTipo(despesa.getId(), TipoDocumento.NOTA_FISCAL),
+                documentoAnexoRepository.existsByDespesaIdAndTipo(despesa.getId(), TipoDocumento.COMPROVANTE_PAGAMENTO)
         );
+    }
+
+    private String limparDocumento(String documento) {
+        if (documento == null || documento.isBlank()) return null;
+        String limpo = documento.replaceAll("[^0-9]", "");
+        return limpo.isEmpty() ? null : limpo;
     }
 
     private BigDecimal parseValor(String valorString) {
@@ -443,6 +508,7 @@ public class DespesaController {
 }
 
 record AtualizarStatusDespesaDTO(StatusDespesa novoStatus) {}
+record VincularComprovanteDTO(UUID parcelaId, UUID comprovanteId, UUID despesaId) {}
 record EditarDespesaDTO(
         BigDecimal valor,
         String dataCompetencia,
@@ -450,5 +516,6 @@ record EditarDespesaDTO(
         String numero,
         String descricao,
         String nomeEmpresa,
-        String observacao
+        String observacao,
+        String documentoFavorecido
 ) {}
