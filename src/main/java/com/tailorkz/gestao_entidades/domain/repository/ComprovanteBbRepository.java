@@ -18,6 +18,9 @@ public interface ComprovanteBbRepository extends JpaRepository<ComprovanteBb, UU
     List<ComprovanteBb> findByParcelaId(UUID parcelaId);
 
     @EntityGraph(attributePaths = "despesa")
+    List<ComprovanteBb> findByParcelaIdOrderByDataPagamentoDesc(UUID parcelaId);
+
+    @EntityGraph(attributePaths = "despesa")
     List<ComprovanteBb> findByParcelaIdAndDespesaIsNull(UUID parcelaId);
 
     @EntityGraph(attributePaths = "despesa")

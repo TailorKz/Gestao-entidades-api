@@ -403,6 +403,12 @@ public class DespesaController {
         return ResponseEntity.ok(conciliacaoService.listarPendentes(parcela.getId()));
     }
 
+    @GetMapping("/{parcelaId}/comprovantes")
+    public ResponseEntity<List<ComprovanteDTO>> comprovantesDaParcela(@PathVariable UUID parcelaId) {
+        Parcela parcela = validarParcelaAutenticada(parcelaId);
+        return ResponseEntity.ok(conciliacaoService.listarComprovantes(parcela.getId()));
+    }
+
     @GetMapping("/gerr/parcela/{parcelaId}/prontas-para-envio")
     public ResponseEntity<List<GerrPrestacaoDTO>> prontasParaEnvio(@PathVariable UUID parcelaId) {
         Parcela parcela = validarParcelaAutenticada(parcelaId);

@@ -1,14 +1,15 @@
 package com.tailorkz.gestao_entidades.domain.service;
 
 import org.springframework.web.multipart.MultipartFile;
+import java.nio.file.Path;
 
 public interface ArmazenamentoArquivoService {
-
-    // Recebe o arquivo e devolve o link/caminho de onde ele foi salvo
     String armazenar(MultipartFile arquivo, String nomeArquivoOriginal);
 
-    // Remove o arquivo físico do disco
-    default void deletar(String caminhoArquivo) {
-        // Sem armazenamento relativo, nada a fazer
+    // Nova sobrecarga para receber o arquivo físico temporário
+    default String armazenar(Path arquivoFisico, String nomeArquivoOriginal) {
+        return null;
     }
+
+    default void deletar(String caminhoArquivo) {}
 }

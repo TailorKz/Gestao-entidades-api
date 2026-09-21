@@ -55,6 +55,7 @@ public class ConciliacaoService {
     public ConciliacaoResultado processarLote(Parcela parcela, List<MultipartFile> arquivos) {
         List<ComprovanteBb> importados = new ArrayList<>();
         int ignoradosDuplicados = 0;
+        List<String> erros = new ArrayList<>();
 
         for (MultipartFile arquivo : arquivos) {
             if (arquivo == null || arquivo.isEmpty()) continue;
@@ -64,16 +65,22 @@ public class ConciliacaoService {
                 ImportacaoZip zip = importarZip(parcela, arquivo);
                 importados.addAll(zip.lidos());
                 ignoradosDuplicados += zip.duplicados();
+                erros.addAll(zip.erros());
             } else {
                 byte[] bytes;
                 try {
                     bytes = arquivo.getBytes();
                 } catch (java.io.IOException e) {
-                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Falha ao ler o arquivo " + nome);
+                    erros.add((nome == null ? "(sem nome)" : nome) + ": " + e.getMessage());
+                    continue;
                 }
-                ComprovanteBb comp = importarPdf(parcela, bytes, nome);
-                if (comp == null) ignoradosDuplicados++;
-                else importados.add(comp);
+                try {
+                    ComprovanteBb comp = importarPdf(parcela, bytes, nome);
+                    if (comp == null) ignoradosDuplicados++;
+                    else importados.add(comp);
+                } catch (Exception e) {
+                    erros.add((nome == null ? "(sem nome)" : nome) + ": " + mensagemRaiz(e));
+                }
             }
         }
 
@@ -108,13 +115,15 @@ public class ConciliacaoService {
         return new ConciliacaoResultado(
                 vinculados.stream().map(this::paraDTO).toList(),
                 pendentes.stream().map(this::paraDTO).toList(),
-                ignoradosDuplicados
+                ignoradosDuplicados,
+                erros
         );
     }
 
     private ImportacaoZip importarZip(Parcela parcela, MultipartFile zip) {
         List<ComprovanteBb> lidos = new ArrayList<>();
         int duplicados = 0;
+        List<String> erros = new ArrayList<>();
         try (ZipInputStream zis = new ZipInputStream(zip.getInputStream())) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
@@ -131,15 +140,25 @@ public class ConciliacaoService {
                         ? entry.getName().substring(entry.getName().lastIndexOf('/') + 1)
                         : entry.getName();
 
-                ComprovanteBb comp = importarPdf(parcela, conteudo, nome);
-                if (comp == null) duplicados++;
-                else lidos.add(comp);
+                try {
+                    ComprovanteBb comp = importarPdf(parcela, conteudo, nome);
+                    if (comp == null) duplicados++;
+                    else lidos.add(comp);
+                } catch (Exception e) {
+                    erros.add(nome + ": " + mensagemRaiz(e));
+                }
                 zis.closeEntry();
             }
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Falha ao ler o arquivo ZIP: " + e.getMessage());
         }
-        return new ImportacaoZip(lidos, duplicados);
+        return new ImportacaoZip(lidos, duplicados, erros);
+    }
+
+    private String mensagemRaiz(Throwable t) {
+        Throwable raiz = t;
+        while (raiz.getCause() != null && raiz.getCause() != raiz) raiz = raiz.getCause();
+        return raiz.getMessage() != null ? raiz.getMessage() : raiz.getClass().getSimpleName();
     }
 
     private ComprovanteBb importarPdf(Parcela parcela, byte[] conteudo, String nome) {
@@ -158,7 +177,7 @@ public class ConciliacaoService {
         novo.setAutenticacao(vazioParaNull(dados.autenticacao()));
         novo.setNomeArquivo(nome);
         novo.setHashArquivo(hash);
-        novo.setArquivoPdf(conteudo);
+        novo.setChaveS3(anexoService.enviarParaArmazenamento(conteudo, nome));
         novo.setVinculado(false);
 
         return comprovanteRepository.save(novo);
@@ -194,7 +213,11 @@ public class ConciliacaoService {
     }
 
     private void vincular(ComprovanteBb comp, Despesa despesa) {
-        anexoService.anexarArquivo(despesa.getId(), TipoDocumento.COMPROVANTE_PAGAMENTO, comp.getArquivoPdf(), comp.getNomeArquivo());
+        if (comp.getChaveS3() != null && !comp.getChaveS3().isBlank()) {
+            anexoService.anexarExistente(despesa.getId(), TipoDocumento.COMPROVANTE_PAGAMENTO, comp.getChaveS3(), comp.getNomeArquivo());
+        } else if (comp.getArquivoPdf() != null) {
+            anexoService.anexarArquivo(despesa.getId(), TipoDocumento.COMPROVANTE_PAGAMENTO, comp.getArquivoPdf(), comp.getNomeArquivo());
+        }
         comp.setParcela(despesa.getParcela());
         comp.setDespesa(despesa);
         comp.setVinculado(true);
@@ -208,6 +231,11 @@ public class ConciliacaoService {
 
     public List<ComprovanteDTO> listarPendentes(UUID parcelaId) {
         return comprovanteRepository.findByParcelaIdAndDespesaIsNull(parcelaId).stream()
+                .map(this::paraDTO).toList();
+    }
+
+    public List<ComprovanteDTO> listarComprovantes(UUID parcelaId) {
+        return comprovanteRepository.findByParcelaIdOrderByDataPagamentoDesc(parcelaId).stream()
                 .map(this::paraDTO).toList();
     }
 
@@ -264,7 +292,8 @@ public class ConciliacaoService {
                 c.getDocumentoFavorecido(),
                 c.getAutenticacao(),
                 d != null ? d.getId() : null,
-                d != null ? (d.getNomeEmpresa() != null && !d.getNomeEmpresa().isBlank() ? d.getNomeEmpresa() : d.getEmitente()) : null
+                d != null ? (d.getNomeEmpresa() != null && !d.getNomeEmpresa().isBlank() ? d.getNomeEmpresa() : d.getEmitente()) : null,
+                d != null && temNotaFiscal(d.getId())
         );
     }
 
@@ -311,7 +340,7 @@ public class ConciliacaoService {
         }
     }
 
-    public record ConciliacaoResultado(List<ComprovanteDTO> vinculados, List<ComprovanteDTO> pendentes, int ignoradosDuplicados) {}
+    public record ConciliacaoResultado(List<ComprovanteDTO> vinculados, List<ComprovanteDTO> pendentes, int ignoradosDuplicados, List<String> erros) {}
 
-    private record ImportacaoZip(List<ComprovanteBb> lidos, int duplicados) {}
+    private record ImportacaoZip(List<ComprovanteBb> lidos, int duplicados, List<String> erros) {}
 }

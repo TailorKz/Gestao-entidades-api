@@ -57,6 +57,7 @@ public class SecurityConfig {
                         .requestMatchers("/auth/login").permitAll()
                         .requestMatchers("/auth/trocar-senha").permitAll()
                         .requestMatchers("/error").permitAll()
+                        .requestMatchers("/arquivos/**").permitAll()
                         .requestMatchers("/**").authenticated()
                 )
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);

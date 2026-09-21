@@ -64,7 +64,14 @@ public class ApiExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGenerico(Exception ex) {
         log.error("Erro não tratado na API", ex);
-        return montar(HttpStatus.INTERNAL_SERVER_ERROR.value(), MENSAGEM_GENERICA);
+        String raiz = null;
+        Throwable causa = ex;
+        while (causa != null) {
+            if (causa.getMessage() != null && !causa.getMessage().isBlank()) raiz = causa.getMessage();
+            causa = causa.getCause();
+        }
+        String mensagem = raiz != null ? raiz : MENSAGEM_GENERICA;
+        return montar(HttpStatus.INTERNAL_SERVER_ERROR.value(), mensagem);
     }
 
     private ResponseEntity<Map<String, Object>> montar(int status, String mensagem) {

@@ -57,3 +57,10 @@ gemini:
     key: ${GEMINI_API_KEY}
     url: ${GEMINI_API_URL:https://generativelanguage.googleapis.com}
     modelo: ${GEMINI_API_MODELO:gemini-2.5-flash}
+
+aws:
+  s3:
+    access-key: ${AWS_ACCESS_KEY_ID}
+    secret-key: ${AWS_SECRET_ACCESS_KEY}
+    region: ${AWS_REGION:sa-east-1}
+    bucket: ${AWS_BUCKET_NAME:indaci-documentos-prod}

@@ -2,6 +2,8 @@ package com.tailorkz.gestao_entidades.domain.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -53,7 +55,10 @@ public class ComprovanteBb {
     @Column(nullable = false)
     private Boolean vinculado = false;
 
-    @Lob
+    @JdbcTypeCode(SqlTypes.BINARY)
     @Column(name = "arquivo_pdf", columnDefinition = "BYTEA")
     private byte[] arquivoPdf;
+
+    @Column(name = "chave_s3", length = 250)
+    private String chaveS3;
 }
