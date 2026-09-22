@@ -48,6 +48,7 @@ public class ParcelaController {
         }
 
         List<ParcelaDTO> lista = parcelas.stream()
+                .sorted(java.util.Comparator.comparing(Parcela::getNumero, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
                 .map(p -> new ParcelaDTO(
                         p.getId(),
                         p.getFomento().getId(),

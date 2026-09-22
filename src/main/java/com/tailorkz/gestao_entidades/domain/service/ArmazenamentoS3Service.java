@@ -9,6 +9,7 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetBucketLocationRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -33,18 +34,38 @@ public class ArmazenamentoS3Service implements ArmazenamentoArquivoService {
             @Value("${aws.s3.bucket}") String bucketName) {
 
         this.bucketName = bucketName;
-        Region region = Region.of(regionString);
         AwsBasicCredentials credentials = AwsBasicCredentials.create(accessKey, secretKey);
+        Region regiaoConfigurada = Region.of(regionString);
+        Region regiaoReal = descobrirRegiaoDoS3(regiaoConfigurada, bucketName, credentials);
 
         this.s3Client = S3Client.builder()
-                .region(region)
+                .region(regiaoReal)
                 .credentialsProvider(StaticCredentialsProvider.create(credentials))
                 .build();
 
         this.s3Presigner = S3Presigner.builder()
-                .region(region)
+                .region(regiaoReal)
                 .credentialsProvider(StaticCredentialsProvider.create(credentials))
                 .build();
+    }
+
+    // Descobre a região real do bucket para evitar o erro 301 "PermanentRedirect"
+    private Region descobrirRegiaoDoS3(Region configurada, String bucket, AwsBasicCredentials credenciais) {
+        try (S3Client probe = S3Client.builder()
+                .region(configurada)
+                .credentialsProvider(StaticCredentialsProvider.create(credenciais))
+                .build()) {
+            String localizacao = probe.getBucketLocation(GetBucketLocationRequest.builder().bucket(bucket).build())
+                    .locationConstraintAsString();
+            if (localizacao == null || localizacao.isBlank() || "null".equalsIgnoreCase(localizacao)) {
+                return Region.US_EAST_1;
+            }
+            return Region.of(localizacao);
+        } catch (Exception e) {
+            System.err.println("Não foi possível detectar a região do bucket '" + bucket
+                    + "', usando a configurada (" + configurada + "): " + e.getMessage());
+            return configurada;
+        }
     }
 
     @Override

@@ -1,13 +1,18 @@
 package com.tailorkz.gestao_entidades.domain.service;
 
+import com.tailorkz.gestao_entidades.domain.enums.StatusDespesa;
 import com.tailorkz.gestao_entidades.domain.enums.TipoDocumento;
+import com.tailorkz.gestao_entidades.domain.model.ComprovanteBb;
 import com.tailorkz.gestao_entidades.domain.model.Despesa;
 import com.tailorkz.gestao_entidades.domain.model.DocumentoAnexo;
+import com.tailorkz.gestao_entidades.domain.repository.ComprovanteBbRepository;
 import com.tailorkz.gestao_entidades.domain.repository.DespesaRepository;
 import com.tailorkz.gestao_entidades.domain.repository.DocumentoAnexoRepository;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -18,17 +23,23 @@ import java.util.UUID;
 @Service
 public class DocumentoAnexoService {
 
+    // Arquivos abaixo deste tamanho não passam pela compressão (ganho pequeno x tempo gasto)
+    private static final long LIMITE_COMPRIMIR = 300_000; // ~300KB
+
     private final DocumentoAnexoRepository anexoRepository;
     private final DespesaRepository despesaRepository;
+    private final ComprovanteBbRepository comprovanteRepository;
     private final ArmazenamentoArquivoService armazenamentoService;
     private final PdfCompressorService pdfCompressorService;
 
     public DocumentoAnexoService(DocumentoAnexoRepository anexoRepository,
                                  DespesaRepository despesaRepository,
+                                 ComprovanteBbRepository comprovanteRepository,
                                  ArmazenamentoArquivoService armazenamentoService,
                                  PdfCompressorService pdfCompressorService) {
         this.anexoRepository = anexoRepository;
         this.despesaRepository = despesaRepository;
+        this.comprovanteRepository = comprovanteRepository;
         this.armazenamentoService = armazenamentoService;
         this.pdfCompressorService = pdfCompressorService;
     }
@@ -50,7 +61,9 @@ public class DocumentoAnexoService {
         try {
             java.nio.file.Path tempPath = java.nio.file.Files.createTempFile("upload_", nomeArquivo.replace(" ", "_"));
             java.nio.file.Files.write(tempPath, dados);
-            pdfCompressorService.comprimirPdf(tempPath.toString());
+            if (java.nio.file.Files.size(tempPath) > LIMITE_COMPRIMIR) {
+                pdfCompressorService.comprimirPdf(tempPath.toString());
+            }
             String chaveS3 = armazenamentoService.armazenar(tempPath, nomeArquivo);
             java.nio.file.Files.deleteIfExists(tempPath);
             return chaveS3;
@@ -82,8 +95,10 @@ public class DocumentoAnexoService {
             java.nio.file.Path tempPath = java.nio.file.Files.createTempFile("upload_", nomeOriginal.replace(" ", "_"));
             arquivo.transferTo(tempPath.toFile());
 
-            // 2. Comprime o arquivo localmente
-            pdfCompressorService.comprimirPdf(tempPath.toString());
+            // 2. Comprime o arquivo localmente (apenas se valer a pena)
+            if (java.nio.file.Files.size(tempPath) > LIMITE_COMPRIMIR) {
+                pdfCompressorService.comprimirPdf(tempPath.toString());
+            }
 
             // 3. Envia o arquivo comprimido para o S3
             String chaveS3 = armazenamentoService.armazenar(tempPath, nomeOriginal);
@@ -102,6 +117,49 @@ public class DocumentoAnexoService {
         } catch (Exception e) {
             throw new RuntimeException("Falha ao processar e enviar anexo para o S3", e);
         }
+    }
+
+    // Apaga o objeto no S3 pelo nome da chave
+    public void deletarArquivo(String chaveS3) {
+        armazenamentoService.deletar(chaveS3);
+    }
+
+    // Exclui um anexo (nota, relatório, lista ou comprovante) e reorganiza status/vínculos
+    @Transactional
+    public void excluirAnexo(UUID anexoId) {
+        DocumentoAnexo anexo = anexoRepository.findById(anexoId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Arquivo não encontrado."));
+
+        Despesa despesa = anexo.getDespesa();
+        TipoDocumento tipo = anexo.getTipo();
+
+        anexoRepository.delete(anexo);
+        armazenamentoService.deletar(anexo.getUrlS3());
+
+        if (despesa == null) return;
+
+        if (tipo == TipoDocumento.COMPROVANTE_PAGAMENTO) {
+            // Devolve o comprovante BB para a lista de pendentes
+            List<ComprovanteBb> comprovantes = comprovanteRepository.findByDespesaId(despesa.getId());
+            for (ComprovanteBb c : comprovantes) {
+                c.setDespesa(null);
+                c.setVinculado(false);
+                comprovanteRepository.save(c);
+            }
+        }
+
+        recomputarStatus(despesa.getId());
+    }
+
+    private void recomputarStatus(UUID despesaId) {
+        Despesa despesa = despesaRepository.findById(despesaId).orElse(null);
+        if (despesa == null) return;
+        boolean temNota = anexoRepository.existsByDespesaIdAndTipo(despesa.getId(), TipoDocumento.NOTA_FISCAL);
+        boolean temComp = anexoRepository.existsByDespesaIdAndTipo(despesa.getId(), TipoDocumento.COMPROVANTE_PAGAMENTO);
+        despesa.setStatus(temNota
+                ? (temComp ? StatusDespesa.MATCH_REALIZADO : StatusDespesa.PRONTA_PARA_MATCH)
+                : StatusDespesa.AGUARDANDO_DOCUMENTOS);
+        despesaRepository.save(despesa);
     }
 
     @Transactional

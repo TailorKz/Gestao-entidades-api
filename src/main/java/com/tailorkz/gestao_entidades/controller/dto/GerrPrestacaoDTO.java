@@ -11,5 +11,9 @@ public record GerrPrestacaoDTO(
         String dataPagamento,
         String valor,
         String urlNotaFiscal,
-        String urlComprovante
+        String urlComprovante,
+        String tipoDocumento,
+        String acaoGerr,
+        String descricao,
+        String observacao
 ) {}

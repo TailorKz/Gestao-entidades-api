@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tailorkz.gestao_entidades.controller.dto.DadosComprovanteDTO;
 import com.tailorkz.gestao_entidades.controller.dto.DadosNotaDTO;
+import com.tailorkz.gestao_entidades.domain.enums.TipoDocumentoGerr;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,6 +52,7 @@ public class OcrService {
             System.out.println(textoPdf);
 
             String textoUpper = textoPdf.toUpperCase();
+            TipoDocumentoGerr tipoDocumento = detectarTipoDocumento(textoUpper);
             DadosNotaDTO dadosLocais;
 
             if (textoUpper.contains("DANFSE") || textoUpper.contains("PRESTADOR") || textoUpper.contains("NFS-E")) {
@@ -67,11 +69,11 @@ public class OcrService {
 
             if (precisaIA) {
                 System.out.println("  Dados incompletos ou valor 0,00. Acionando a IA do Gemini como Fallback...");
-                return extrairComIA(textoPdf, dadosLocais);
+                return comTipo(extrairComIA(textoPdf, dadosLocais), tipoDocumento);
             }
 
             System.out.println("  Leitura concluída via Regex (Custo: Zero).");
-            return dadosLocais;
+            return comTipo(dadosLocais, tipoDocumento);
 
         } catch (ResponseStatusException e) {
             throw e; // Repassa a exceção de documento digitalizado para o Controller
@@ -147,6 +149,37 @@ public class OcrService {
         return fallbackLocal;
     }
 
+
+    // Aplica o tipo de documento detectado no texto do PDF (mantém o resto dos dados)
+    private DadosNotaDTO comTipo(DadosNotaDTO d, TipoDocumentoGerr tipo) {
+        if (d == null || tipo == null) return d;
+        return new DadosNotaDTO(d.emitente(), d.valor(), d.data(), d.numero(), d.descricao(), d.documento(), tipo);
+    }
+
+    private TipoDocumentoGerr detectarTipoDocumento(String textoUpper) {
+        if (textoUpper.contains("FOLHA DE PAGAMENTO") || textoUpper.contains("HOLERITE")
+                || textoUpper.contains("RECIBO DE PAGAMENTO") || textoUpper.contains("PROVENTOS")
+                || textoUpper.contains("DEMONSTRATIVO")) {
+            return TipoDocumentoGerr.FOLHA_PAGAMENTO;
+        }
+        if (textoUpper.contains("GFIP") || textoUpper.contains("SEFIP")
+                || textoUpper.contains("DCTFWEB") || textoUpper.contains("INSS")) {
+            return TipoDocumentoGerr.GUIA_INSS;
+        }
+        if (textoUpper.contains("FGTS") || textoUpper.contains("GRF")) {
+            return TipoDocumentoGerr.GUIA_FGTS;
+        }
+        if (textoUpper.contains("NFS-E") || textoUpper.contains("DANFSE")
+                || textoUpper.contains("NOTA FISCAL DE SERVI") || textoUpper.contains("PRESTADOR")) {
+            return TipoDocumentoGerr.NOTA_SERVICO_ELETRONICA;
+        }
+        if (textoUpper.contains("NF-E") || textoUpper.contains("DANFE")
+                || textoUpper.contains("NOTA FISCAL ELETR") || textoUpper.contains("CHAVE DE ACESSO")
+                || textoUpper.contains("PRODUTOS")) {
+            return TipoDocumentoGerr.NOTA_FISCAL_ELETRONICA;
+        }
+        return null;
+    }
 
     // --- REGRA UNIFICADA DE PREFEITURA (V1.0 e V2.0) ---
     private DadosNotaDTO lerNotaServicoUnificada(String texto) {

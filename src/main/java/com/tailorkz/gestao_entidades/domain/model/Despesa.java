@@ -1,6 +1,7 @@
 package com.tailorkz.gestao_entidades.domain.model;
 
 import com.tailorkz.gestao_entidades.domain.enums.StatusDespesa;
+import com.tailorkz.gestao_entidades.domain.enums.TipoDocumentoGerr;
 import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
@@ -61,4 +62,12 @@ public class Despesa {
 
     @Column(columnDefinition = "TEXT")
     private String observacao;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "tipo_documento_gerr", length = 30)
+    private TipoDocumentoGerr tipoDocumentoGerr;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "acao_gerr_id")
+    private AcaoGerr acaoGerr;
 }

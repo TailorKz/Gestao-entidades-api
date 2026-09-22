@@ -59,6 +59,13 @@ public class AnexoController {
         return ResponseEntity.ok(dadosExtraidos);
     }
 
+    @DeleteMapping("/{anexoId}")
+    public ResponseEntity<Void> excluirAnexo(@PathVariable UUID anexoId) {
+        segurancaService.garantirEhGestor("Somente gestores podem excluir arquivos.");
+        anexoService.excluirAnexo(anexoId);
+        return ResponseEntity.noContent().build();
+    }
+
     private void validarAcesso(UUID despesaId) {
         Despesa despesa = despesaRepository.findById(despesaId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Despesa não encontrada."));

@@ -6,6 +6,7 @@ import com.tailorkz.gestao_entidades.domain.enums.StatusDespesa;
 import com.tailorkz.gestao_entidades.domain.enums.TipoDocumento;
 import com.tailorkz.gestao_entidades.domain.model.ComprovanteBb;
 import com.tailorkz.gestao_entidades.domain.model.Despesa;
+import com.tailorkz.gestao_entidades.domain.model.DocumentoAnexo;
 import com.tailorkz.gestao_entidades.domain.model.Parcela;
 import com.tailorkz.gestao_entidades.domain.repository.ComprovanteBbRepository;
 import com.tailorkz.gestao_entidades.domain.repository.DespesaRepository;
@@ -239,6 +240,34 @@ public class ConciliacaoService {
                 .map(this::paraDTO).toList();
     }
 
+    @Transactional
+    public void excluirComprovante(UUID parcelaId, UUID comprovanteId) {
+        ComprovanteBb comp = comprovanteRepository.findById(comprovanteId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Comprovante não encontrado."));
+
+        Despesa despesa = comp.getDespesa();
+        if (despesa != null) {
+            // Remove o anexo de comprovante da despesa (cobre comprovantes novos e antigos)
+            List<DocumentoAnexo> anexosDespesa = anexoRepository.findByDespesaIdAndTipo(despesa.getId(), TipoDocumento.COMPROVANTE_PAGAMENTO);
+            for (DocumentoAnexo a : anexosDespesa) {
+                anexoService.deletarArquivo(a.getUrlS3());
+                anexoRepository.delete(a);
+            }
+        } else if (comp.getChaveS3() != null && !comp.getChaveS3().isBlank()) {
+            // Comprovante pendente: apaga o objeto do S3 diretamente
+            anexoService.deletarArquivo(comp.getChaveS3());
+        }
+
+        comprovanteRepository.delete(comp);
+
+        if (despesa != null) {
+            despesa.setStatus(temNotaFiscal(despesa.getId())
+                    ? StatusDespesa.PRONTA_PARA_MATCH
+                    : StatusDespesa.AGUARDANDO_DOCUMENTOS);
+            despesaRepository.save(despesa);
+        }
+    }
+
     public List<ComprovanteDTO> listarVinculados(UUID parcelaId) {
         return comprovanteRepository.findByParcelaId(parcelaId).stream()
                 .filter(c -> c.getDespesa() != null)
@@ -293,7 +322,8 @@ public class ConciliacaoService {
                 c.getAutenticacao(),
                 d != null ? d.getId() : null,
                 d != null ? (d.getNomeEmpresa() != null && !d.getNomeEmpresa().isBlank() ? d.getNomeEmpresa() : d.getEmitente()) : null,
-                d != null && temNotaFiscal(d.getId())
+                d != null && temNotaFiscal(d.getId()),
+                c.getChaveS3()
         );
     }
 
