@@ -1,5 +1,6 @@
 package com.tailorkz.gestao_entidades.controller.dto;
 
+import java.util.List;
 import java.util.UUID;
 
 public record GerrPrestacaoDTO(
@@ -15,5 +16,6 @@ public record GerrPrestacaoDTO(
         String tipoDocumento,
         String acaoGerr,
         String descricao,
-        String observacao
+        String observacao,
+        List<GerrAnexoDTO> anexos
 ) {}

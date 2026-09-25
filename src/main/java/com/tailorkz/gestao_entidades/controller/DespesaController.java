@@ -4,7 +4,9 @@ import com.tailorkz.gestao_entidades.controller.dto.AnexoDTO;
 import com.tailorkz.gestao_entidades.controller.dto.ComprovanteDTO;
 import com.tailorkz.gestao_entidades.controller.dto.DespesaRequestDTO;
 import com.tailorkz.gestao_entidades.controller.dto.DespesaResponseDTO;
+import com.tailorkz.gestao_entidades.controller.dto.GerrAnexoDTO;
 import com.tailorkz.gestao_entidades.controller.dto.GerrPrestacaoDTO;
+import com.tailorkz.gestao_entidades.controller.dto.MesComprovantesDTO;
 import com.tailorkz.gestao_entidades.domain.enums.Categoria;
 import com.tailorkz.gestao_entidades.domain.enums.StatusDespesa;
 import com.tailorkz.gestao_entidades.domain.enums.TipoDocumento;
@@ -417,11 +419,75 @@ public class DespesaController {
         return ResponseEntity.ok(conciliacaoService.processarLote(parcela, arquivos));
     }
 
+    @PostMapping(value = "/conciliacao/importar-mes", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ConciliacaoService.ConciliacaoResultado> importarComprovantesDoMes(
+            @RequestParam("categoria") String categoria,
+            @RequestParam("ano") int ano,
+            @RequestParam("mes") int mes,
+            @RequestParam("arquivos") List<MultipartFile> arquivos) {
+        segurancaService.garantirEhGestor("Somente gestores podem importar comprovantes.");
+        return ResponseEntity.ok(conciliacaoService.importarMes(
+                segurancaService.logado().getTenant(), parseCategoria(categoria), ano, mes, arquivos));
+    }
+
+    @GetMapping("/conciliacao/sumarizado")
+    public ResponseEntity<List<MesComprovantesDTO>> sumarizarComprovantes(
+            @RequestParam("categoria") String categoria,
+            @RequestParam("ano") int ano) {
+        segurancaService.garantirEhGestor("Somente gestores podem consultar o resumo de comprovantes.");
+        return ResponseEntity.ok(conciliacaoService.sumarizar(segurancaService.tenantDoLogado(), parseCategoria(categoria), ano));
+    }
+
+    @GetMapping("/conciliacao/comprovantes-mes")
+    public ResponseEntity<List<ComprovanteDTO>> comprovantesDoMes(
+            @RequestParam("categoria") String categoria,
+            @RequestParam("ano") int ano,
+            @RequestParam("mes") int mes) {
+        segurancaService.garantirEhGestor("Somente gestores podem consultar comprovantes.");
+        return ResponseEntity.ok(conciliacaoService.listarComprovantesDoMes(
+                segurancaService.tenantDoLogado(), parseCategoria(categoria), ano, mes));
+    }
+
+    @GetMapping("/conciliacao/candidatas")
+    public ResponseEntity<List<DespesaResponseDTO>> despesasCandidatas(@RequestParam("categoria") String categoria) {
+        segurancaService.garantirEhGestor("Somente gestores podem listar despesas candidatas.");
+        return ResponseEntity.ok(toDTO(conciliacaoService.candidatasDoSetor(
+                segurancaService.tenantDoLogado(), parseCategoria(categoria))));
+    }
+
     @PostMapping("/conciliacao/vincular")
     public ResponseEntity<ComprovanteDTO> vincularComprovante(@RequestBody VincularComprovanteDTO dto) {
         segurancaService.garantirEhGestor("Somente gestores podem vincular comprovantes.");
-        Parcela parcela = validarParcelaAutenticada(dto.parcelaId());
-        return ResponseEntity.ok(conciliacaoService.vincularManual(parcela, dto.comprovanteId(), dto.despesaId()));
+        if (dto.parcelaId() != null) {
+            // Modo legado (por parcela): usa a parcela para validar acesso e setor
+            Parcela parcela = validarParcelaAutenticada(dto.parcelaId());
+            return ResponseEntity.ok(conciliacaoService.vincularManual(parcela, dto.comprovanteId(), dto.despesaId()));
+        }
+        return ResponseEntity.ok(conciliacaoService.vincularManual(
+                segurancaService.tenantDoLogado(), dto.categoria(), dto.comprovanteId(), dto.despesaId()));
+    }
+
+    @DeleteMapping("/conciliacao/comprovantes/{comprovanteId}")
+    public ResponseEntity<Void> excluirComprovantePorSetor(@PathVariable UUID comprovanteId) {
+        segurancaService.garantirEhGestor("Somente gestores podem excluir comprovantes.");
+        conciliacaoService.excluirComprovante(segurancaService.tenantDoLogado(), comprovanteId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/conciliacao/comprovantes/{comprovanteId}/desvincular")
+    public ResponseEntity<ComprovanteDTO> desvincularComprovante(@PathVariable UUID comprovanteId) {
+        segurancaService.garantirEhGestor("Somente gestores podem desvincular comprovantes.");
+        return ResponseEntity.ok(conciliacaoService.desvincular(segurancaService.tenantDoLogado(), comprovanteId));
+    }
+
+    @DeleteMapping("/conciliacao/comprovantes-mes")
+    public ResponseEntity<Void> excluirComprovantesDoMes(
+            @RequestParam("categoria") String categoria,
+            @RequestParam("ano") int ano,
+            @RequestParam("mes") int mes) {
+        segurancaService.garantirEhGestor("Somente gestores podem excluir comprovantes.");
+        conciliacaoService.excluirComprovantesDoMes(segurancaService.tenantDoLogado(), parseCategoria(categoria), ano, mes);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping(value = "/{despesaId}/anexar-comprovante", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -450,35 +516,107 @@ public class DespesaController {
     public ResponseEntity<Void> excluirComprovante(@PathVariable UUID parcelaId, @PathVariable UUID comprovanteId) {
         segurancaService.garantirEhGestor("Somente gestores podem excluir comprovantes.");
         Parcela parcela = validarParcelaAutenticada(parcelaId);
-        conciliacaoService.excluirComprovante(parcela.getId(), comprovanteId);
+        conciliacaoService.excluirComprovanteDaParcela(parcela.getId(), comprovanteId);
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/gerr/parcela/{parcelaId}/prontas-para-envio")
     public ResponseEntity<List<GerrPrestacaoDTO>> prontasParaEnvio(@PathVariable UUID parcelaId) {
         Parcela parcela = validarParcelaAutenticada(parcelaId);
-        List<GerrPrestacaoDTO> lista = despesaRepository.findByParcelaId(parcela.getId()).stream()
+        List<Despesa> despesas = despesaRepository.findByParcelaId(parcela.getId()).stream()
                 .filter(d -> d.getStatus() == StatusDespesa.MATCH_REALIZADO)
-                .map(this::paraGerr)
-                .filter(java.util.Objects::nonNull)
                 .toList();
-        return ResponseEntity.ok(lista);
+        return ResponseEntity.ok(paraGerr(despesas));
     }
 
-    private GerrPrestacaoDTO paraGerr(Despesa despesa) {
-        String urlNota = urlDoAnexo(despesa.getId(), TipoDocumento.NOTA_FISCAL);
-        String urlComprovante = urlDoAnexo(despesa.getId(), TipoDocumento.COMPROVANTE_PAGAMENTO);
-        if (urlNota == null || urlComprovante == null) return null;
+    // Despesas já marcadas como enviadas ao GERR (para a extensão oferecer a
+    // opção de reenvio quando o GERR não chegou a registrar o pagamento).
+    @GetMapping("/gerr/parcela/{parcelaId}/enviadas")
+    public ResponseEntity<List<GerrPrestacaoDTO>> enviadasDaParcela(@PathVariable UUID parcelaId) {
+        Parcela parcela = validarParcelaAutenticada(parcelaId);
+        List<Despesa> despesas = despesaRepository.findByParcelaId(parcela.getId()).stream()
+                .filter(d -> d.getStatus() == StatusDespesa.ENVIADA_GERR)
+                .toList();
+        return ResponseEntity.ok(paraGerr(despesas));
+    }
 
-        String dataPagamento = comprovanteBbRepository.findByDespesaId(despesa.getId()).stream()
-                .map(com.tailorkz.gestao_entidades.domain.model.ComprovanteBb::getDataPagamento)
+    // Reverte ENVIADA_GERR de volta para MATCH_REALIZADO, recolocando a despesa
+    // na lista de "prontas para envio" para uma nova tentativa.
+    @PatchMapping("/gerr/{despesaId}/reverter-envio")
+    public ResponseEntity<?> reverterEnvio(@PathVariable UUID despesaId) {
+        segurancaService.garantirEhGestor("Somente gestores podem reverter um envio.");
+        Despesa despesa = buscarDespesa(despesaId);
+        segurancaService.garantirAcessoTenant(despesa.getParcela().getFomento().getTenant().getId());
+        if (despesa.getStatus() != StatusDespesa.ENVIADA_GERR) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Somente despesas marcadas como enviadas podem ser revertidas.");
+        }
+        despesa.setStatus(StatusDespesa.MATCH_REALIZADO);
+        Despesa salva = despesaRepository.save(despesa);
+        return ResponseEntity.ok(paraDTO(salva));
+    }
+
+    // Quantidade de despesas prontas por parcela em UMA única query (a extensão
+    // não precisa mais chamar o endpoint de cada parcela separadamente).
+    @GetMapping("/gerr/prontas/contagens")
+    public ResponseEntity<List<ProntasContagemDTO>> contagensProntas() {
+        UUID tenantId = segurancaService.tenantDoLogado();
+        List<ProntasContagemDTO> contagens = despesaRepository
+                .countProntasPorParcela(tenantId, StatusDespesa.MATCH_REALIZADO).stream()
+                .map(linha -> new ProntasContagemDTO((UUID) linha[0], (long) linha[1]))
+                .toList();
+        return ResponseEntity.ok(contagens);
+    }
+
+    // Quantidade de despesas enviadas por parcela (para a extensão mostrar quantas
+    // podem ser reenviadas, caso o GERR não tenha registrado o pagamento).
+    @GetMapping("/gerr/enviadas/contagens")
+    public ResponseEntity<List<ProntasContagemDTO>> contagensEnviadas() {
+        UUID tenantId = segurancaService.tenantDoLogado();
+        List<ProntasContagemDTO> contagens = despesaRepository
+                .countProntasPorParcela(tenantId, StatusDespesa.ENVIADA_GERR).stream()
+                .map(linha -> new ProntasContagemDTO((UUID) linha[0], (long) linha[1]))
+                .toList();
+        return ResponseEntity.ok(contagens);
+    }
+
+    // Conversão em lote sem N+1: anexos e datas de pagamento de todas as despesas
+    // saem em 2 queries agregadas.
+    private List<GerrPrestacaoDTO> paraGerr(List<Despesa> despesas) {
+        if (despesas.isEmpty()) return List.of();
+        List<UUID> despesaIds = despesas.stream().map(Despesa::getId).toList();
+
+        Map<UUID, List<AnexoLote>> anexosPorDespesa = new HashMap<>();
+        for (Object[] linha : documentoAnexoRepository.findAnexosComDespesaId(despesaIds)) {
+            anexosPorDespesa.computeIfAbsent((UUID) linha[0], k -> new ArrayList<>())
+                    .add(new AnexoLote((UUID) linha[0], (TipoDocumento) linha[1],
+                            (String) linha[2], (String) linha[3]));
+        }
+
+        Map<UUID, LocalDate> pagamentoPorDespesa = new HashMap<>();
+        for (Object[] linha : comprovanteBbRepository.findDataPagamentoPorDespesa(despesaIds)) {
+            pagamentoPorDespesa.putIfAbsent((UUID) linha[0], (LocalDate) linha[1]);
+        }
+
+        return despesas.stream()
+                .map(d -> paraGerr(d,
+                        anexosPorDespesa.getOrDefault(d.getId(), List.of()),
+                        pagamentoPorDespesa.get(d.getId())))
                 .filter(java.util.Objects::nonNull)
-                .findFirst()
-                .map(LocalDate::toString)
-                .orElse(null);
+                .toList();
+    }
+
+    private GerrPrestacaoDTO paraGerr(Despesa despesa, List<AnexoLote> anexos, LocalDate dataPagamento) {
+        AnexoLote nota = primeiroAnexo(anexos, TipoDocumento.NOTA_FISCAL);
+        AnexoLote comprovante = primeiroAnexo(anexos, TipoDocumento.COMPROVANTE_PAGAMENTO);
+        if (nota == null || comprovante == null) return null;
 
         String favorecido = despesa.getNomeEmpresa() != null && !despesa.getNomeEmpresa().isBlank()
                 ? despesa.getNomeEmpresa() : despesa.getEmitente();
+
+        List<GerrAnexoDTO> gerrAnexos = anexos.stream()
+                .map(a -> new GerrAnexoDTO(a.tipo().name(), a.chaveS3(), a.urlS3()))
+                .toList();
 
         return new GerrPrestacaoDTO(
                 despesa.getId(),
@@ -486,21 +624,25 @@ public class DespesaController {
                 despesa.getNumeroDocumento(),
                 despesa.getDocumentoFavorecido(),
                 despesa.getDataEmissao() != null ? despesa.getDataEmissao().toString() : null,
-                dataPagamento,
+                dataPagamento != null ? dataPagamento.toString() : null,
                 despesa.getValor().toString(),
-                urlNota,
-                urlComprovante,
+                urlDoAnexo(nota),
+                urlDoAnexo(comprovante),
                 despesa.getTipoDocumentoGerr() != null ? despesa.getTipoDocumentoGerr().name() : null,
                 despesa.getAcaoGerr() != null ? despesa.getAcaoGerr().getNome() : null,
                 despesa.getDescricao(),
-                despesa.getObservacao()
+                despesa.getObservacao(),
+                gerrAnexos
         );
     }
 
-    private String urlDoAnexo(UUID despesaId, TipoDocumento tipo) {
-        var anexo = documentoAnexoRepository.findByDespesaIdAndTipo(despesaId, tipo).stream().findFirst().orElse(null);
-        if (anexo == null || anexo.getUrlS3() == null) return null;
-        String nome = Paths.get(anexo.getUrlS3()).getFileName().toString();
+    private AnexoLote primeiroAnexo(List<AnexoLote> anexos, TipoDocumento tipo) {
+        return anexos.stream().filter(a -> a.tipo() == tipo).findFirst().orElse(null);
+    }
+
+    private String urlDoAnexo(AnexoLote anexo) {
+        if (anexo == null || anexo.urlS3() == null) return null;
+        String nome = Paths.get(anexo.urlS3()).getFileName().toString();
         return "/arquivos/" + nome;
     }
 
@@ -571,7 +713,9 @@ public class DespesaController {
                 despesa.getAcaoGerr() != null ? despesa.getAcaoGerr().getId() : null,
                 despesa.getAcaoGerr() != null ? despesa.getAcaoGerr().getNome() : null,
                 documentoAnexoRepository.existsByDespesaIdAndTipo(despesa.getId(), TipoDocumento.NOTA_FISCAL),
-                documentoAnexoRepository.existsByDespesaIdAndTipo(despesa.getId(), TipoDocumento.COMPROVANTE_PAGAMENTO)
+                documentoAnexoRepository.existsByDespesaIdAndTipo(despesa.getId(), TipoDocumento.COMPROVANTE_PAGAMENTO),
+                despesa.getDataEmissao() != null ? despesa.getDataEmissao().toString() : null,
+                despesa.getParcela().getNumero()
         );
     }
 
@@ -601,7 +745,9 @@ public class DespesaController {
                     d.getAcaoGerr() != null ? d.getAcaoGerr().getId() : null,
                     d.getAcaoGerr() != null ? d.getAcaoGerr().getNome() : null,
                     ts.contains(TipoDocumento.NOTA_FISCAL),
-                    ts.contains(TipoDocumento.COMPROVANTE_PAGAMENTO)
+                    ts.contains(TipoDocumento.COMPROVANTE_PAGAMENTO),
+                    d.getDataEmissao() != null ? d.getDataEmissao().toString() : null,
+                    d.getParcela() != null ? d.getParcela().getNumero() : null
             );
         }).toList();
     }
@@ -631,6 +777,17 @@ public class DespesaController {
         return acao;
     }
 
+    private Categoria parseCategoria(String categoria) {
+        if (categoria == null || categoria.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Setor (categoria) é obrigatório.");
+        }
+        try {
+            return Categoria.valueOf(categoria.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Setor inválido.");
+        }
+    }
+
     private BigDecimal parseValor(String valorString) {
         try {
             String valorLimpo = valorString.replace(".", "").replace(",", ".");
@@ -642,9 +799,11 @@ public class DespesaController {
 }
 
 record AtualizarStatusDespesaDTO(StatusDespesa novoStatus) {}
-record VincularComprovanteDTO(UUID parcelaId, UUID comprovanteId, UUID despesaId) {}
+record VincularComprovanteDTO(UUID parcelaId, UUID comprovanteId, UUID despesaId, Categoria categoria) {}
 record AtualizarTipoDocumentoDTO(String tipoDocumento) {}
 record AtualizarAcaoGerrDTO(UUID acaoGerrId) {}
+record ProntasContagemDTO(UUID parcelaId, long quantidade) {}
+record AnexoLote(UUID despesaId, TipoDocumento tipo, String chaveS3, String urlS3) {}
 record EditarDespesaDTO(
         BigDecimal valor,
         String dataCompetencia,

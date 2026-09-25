@@ -14,5 +14,10 @@ public record ComprovanteDTO(
         UUID despesaId,
         String despesaDescricao,
         boolean temNotaFiscal,
-        String chaveS3
+        String chaveS3,
+        String dataReferencia,
+        Integer numeroParcela,
+        String categoria,
+        String despesaDataEmissao,
+        BigDecimal despesaValor
 ) {}

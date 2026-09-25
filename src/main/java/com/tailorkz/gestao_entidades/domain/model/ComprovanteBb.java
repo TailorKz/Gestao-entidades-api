@@ -1,5 +1,6 @@
 package com.tailorkz.gestao_entidades.domain.model;
 
+import com.tailorkz.gestao_entidades.domain.enums.Categoria;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -24,7 +25,21 @@ public class ComprovanteBb {
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "parcela_id", nullable = false)
+    @JoinColumn(name = "tenant_id")
+    private Tenant tenant;
+
+    // Setor (ESPORTE/CULTURA) informado na importação por mês
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    private Categoria categoria;
+
+    // Mês "balde" de organização — o comprovante nasce sem parcela e é
+    // alocado na parcela da despesa apenas quando é vinculado.
+    @Column(name = "data_referencia")
+    private java.time.LocalDate dataReferencia;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "parcela_id")
     private Parcela parcela;
 
     @Column(nullable = false, precision = 15, scale = 2)

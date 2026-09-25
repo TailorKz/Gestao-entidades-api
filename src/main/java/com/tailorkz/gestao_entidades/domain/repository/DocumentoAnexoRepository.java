@@ -24,4 +24,8 @@ public interface DocumentoAnexoRepository extends JpaRepository<DocumentoAnexo, 
 
     @Query("select distinct a.despesa.id, a.tipo from DocumentoAnexo a where a.despesa.id in :despesaIds")
     List<Object[]> findTiposPorDespesas(@Param("despesaIds") Collection<UUID> despesaIds);
+
+    // Projeção sem carregar a entidade Despesa (evita N+1 e lazy load).
+    @Query("select a.despesa.id, a.tipo, a.chaveS3, a.urlS3 from DocumentoAnexo a where a.despesa.id in :despesaIds")
+    List<Object[]> findAnexosComDespesaId(@Param("despesaIds") Collection<UUID> despesaIds);
 }

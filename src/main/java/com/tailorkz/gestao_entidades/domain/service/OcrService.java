@@ -212,7 +212,8 @@ public class OcrService {
     // -- O MOTOR DE BUSCA (Ajustado para entender acentos) --
     private String extrairPorRegex(String texto, String padraoRegex) {
         // A MÁGICA: UNICODE_CASE ensina o Java que Ú e ú são a mesma letra!
-        Pattern pattern = Pattern.compile(padraoRegex, Pattern.DOTALL | Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+        // MULTILINE: permite âncoras ^ e $ por linha (usadas na leitura de comprovantes)
+        Pattern pattern = Pattern.compile(padraoRegex, Pattern.DOTALL | Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE | Pattern.MULTILINE);
         Matcher matcher = pattern.matcher(texto);
         if (matcher.find()) {
             return matcher.group(1).trim();
@@ -238,6 +239,51 @@ public class OcrService {
     }
 
     // --- LEITOR DE COMPROVANTES DO BANCO DO BRASIL (PIX, Boletos e Tributos) ---
+
+    // Extrai o VALOR de comprovantes. A captura é SEMPRE preguiçosa ([^\n]*?):
+    // com quantificador ganancioso o motor volta de trás para frente e pega um
+    // fragmento do número ("1.000,00" vira "0,00"; "2.105,85" vira "5,85").
+    // Também aceita o padrão sem "R$" ("VALOR TOTAL 1.000,00").
+    private String extrairValorComprovante(String texto) {
+        String valor = extrairPorRegex(texto, "(?i)^\\s*valor\\s*total[^\\n]*?\\s*([\\d.]+,[\\d]{2})");
+        if (valor.isEmpty()) valor = extrairPorRegex(texto, "(?i)^\\s*valor[^\\n]*?([\\d.]+,[\\d]{2})\\s*$");
+        if (valor.isEmpty()) valor = extrairPorRegex(texto, "(?i)^\\s*valor[^\\n]*?R\\$\\s*([\\d.]+,[\\d]{2})");
+        if (valor.isEmpty()) valor = extrairPorRegex(texto, "(?i)valor[^\\n]*?R\\$\\s*([\\d.]+,[\\d]{2})");
+        return valor;
+    }
+
+    // Extrai a DATA do comprovante. O cabeçalho do recibo traz a data de
+    // impressão ("23/09/2026 - AUTOATENDIMENTO - 08.23.50" ou "22/07/2026 -
+    // BANCO DO BRASIL - 16:29:08"), que NÃO é a data do débito. A régua de
+    // prioridade prefere os rótulos de transação ("DÉBITO EM", "DATA DA
+    // TRANSFERENCIA", "DATA DO PAGAMENTO"); o fallback ignora linhas de
+    // impressão (AUTOATENDIMENTO / BANCO DO BRASIL).
+    private String extrairDataComprovante(String texto) {
+        String data = extrairPorRegex(texto, "(?i)^\\s*d[ée]bito\\s+em\\s*:\\s*(\\d{2}/\\d{2}/\\d{4})");
+        if (data.isEmpty()) data = extrairPorRegex(texto, "(?i)^\\s*data\\s+da\\s+transfer[eê]ncia\\s+(\\d{2}/\\d{2}/\\d{4})");
+        if (data.isEmpty()) data = extrairPorRegex(texto, "(?i)^\\s*data\\s+(\\(evento\\)\\s*)?do\\s+pagamento[^\\n]*?\\s*(\\d{2}/\\d{2}/\\d{4})");
+        if (data.isEmpty()) data = extrairPorRegex(texto, "(?i)^\\s*data\\s*:\\s*(\\d{2}/\\d{2}/\\d{4})");
+        if (data.isEmpty()) data = primeiraDataAutentica(texto);
+        return data;
+    }
+
+    // Fallback: primeira data dd/mm/aaaa cuja linha NÃO seja carimbo de
+    // impressão (SISBB/AUTOATENDIMENTO/BANCO DO BRASIL com hora).
+    private String primeiraDataAutentica(String texto) {
+        Pattern p = Pattern.compile("(\\d{2}/\\d{2}/\\d{4})");
+        Matcher m = p.matcher(texto);
+        while (m.find()) {
+            int inicioLinha = texto.lastIndexOf("\n", m.start()) + 1;
+            int fimLinha = texto.indexOf("\n", m.end());
+            if (fimLinha == -1) fimLinha = texto.length();
+            String linha = texto.substring(inicioLinha, fimLinha).toUpperCase();
+            if (linha.contains("AUTOATENDIMENTO")) continue;
+            if (linha.contains("BANCO DO BRASIL") && linha.matches(".*\\d{2}:\\d{2}:\\d{2}.*")) continue;
+            return m.group(0);
+        }
+        return "";
+    }
+
     public DadosComprovanteDTO extrairDadosComprovante(byte[] conteudoPdf, String nomeArquivo) {
         try (PDDocument document = PDDocument.load(conteudoPdf)) {
             PDFTextStripper stripper = new PDFTextStripper();
@@ -250,9 +296,8 @@ public class OcrService {
             System.out.println("=== COMPROVANTE BB: " + nomeArquivo + " ===");
             System.out.println(textoPdf);
 
-            String valor = extrairPorRegex(textoPdf, "(?i)valor[^\\n]*R\\$\\s*([\\d.]+,[\\d]{2})");
+            String valor = extrairValorComprovante(textoPdf);
             if (valor.isEmpty()) valor = extrairPorRegex(textoPdf, "R\\$\\s*([\\d.]+,[\\d]{2})");
-            if (valor.isEmpty()) valor = extrairPorRegex(textoPdf, "(?i)valor[^\\n]*\\s*([\\d.]+,[\\d]{2})");
 
             String favorCnpj = "(\\d{2}\\.\\d{3}\\.\\d{3}/\\d{4}-\\d{2})";
             String documento = extrairPorRegex(textoPdf, "(?i)pago\\s+para[^\\n]*\\n\\s*cnpj[^\\n]*\\s*" + favorCnpj);
@@ -272,8 +317,7 @@ public class OcrService {
             String autenticacao = extrairPorRegex(textoPdf, "(?i)autentica[cç][aã]o[^\\n]*?\\s*([A-Z0-9][A-Z0-9.()+\\-]{7,})");
             if (autenticacao.isEmpty()) autenticacao = extrairPorRegex(textoPdf, "(?i)c[óo]digo\\s+de\\s+transa[cç][aã]o[^\\n]*?\\s*([A-Z0-9][A-Z0-9.()+\\-]{7,})");
 
-            String data = extrairPorRegex(textoPdf, "(?i)data[^\\n]*\\s*(\\d{2}/\\d{2}/\\d{4})");
-            if (data.isEmpty()) data = extrairPorRegex(textoPdf, "(\\d{2}/\\d{2}/\\d{4})");
+            String data = extrairDataComprovante(textoPdf);
 
             if (valor.isEmpty() || favorecido.isEmpty()) {
                 return extrairComprovanteComIA(textoPdf);

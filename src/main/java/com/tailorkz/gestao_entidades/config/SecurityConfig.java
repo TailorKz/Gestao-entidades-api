@@ -19,6 +19,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -57,7 +58,6 @@ public class SecurityConfig {
                         .requestMatchers("/auth/login").permitAll()
                         .requestMatchers("/auth/trocar-senha").permitAll()
                         .requestMatchers("/error").permitAll()
-                        .requestMatchers("/arquivos/**").permitAll()
                         .requestMatchers("/**").authenticated()
                 )
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
@@ -67,8 +67,14 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(Arrays.stream(origensCors.split(","))
-                .map(String::trim).filter(s -> !s.isEmpty()).toList());
+        List<String> origens = new ArrayList<>();
+        Arrays.stream(origensCors.split(","))
+                .map(String::trim).filter(s -> !s.isEmpty())
+                .forEach(origens::add);
+        // Extensões de navegador (Chrome/Edge MV3 enviam Origin: chrome-extension://<id>)
+        origens.add("chrome-extension://*");
+        origens.add("moz-extension://*");
+        config.setAllowedOriginPatterns(origens);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);

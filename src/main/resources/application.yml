@@ -32,21 +32,21 @@ server:
 
 logging:
   level:
-    org.springframework.security: DEBUG
+    org.springframework.security: WARN
     org.springframework.web: WARN
 
 app:
   jwt:
-    secret: ${JWT_SECRET:ChaveDesenvolvimentoINDACI2026Com32Caracteres!}
+    secret: ${JWT_SECRET}
     expiracao-horas: 8
   cors:
     origens: ${CORS_ORIGINS:http://localhost:5173}
   seed:
-    ativo: ${APP_SEED_ATIVO:true}
+    ativo: ${APP_SEED_ATIVO:false}
     tenant-nome: ${APP_SEED_TENANT_NOME:INDACI}
     tenant-cnpj: ${APP_SEED_TENANT_CNPJ:00.000.000/0001-00}
     admin-login: ${APP_SEED_ADMIN_LOGIN:admin}
-    admin-senha: ${APP_SEED_ADMIN_SENHA:admin123}
+    admin-senha: ${APP_SEED_ADMIN_SENHA}
     fomento-titulo: ${APP_SEED_FOMENTO_TITULO:Convênio 2026}
     fomento-ano: ${APP_SEED_FOMENTO_ANO:2026}
     parcela-numero: 1

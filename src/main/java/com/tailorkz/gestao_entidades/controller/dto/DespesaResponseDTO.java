@@ -18,11 +18,13 @@ public record DespesaResponseDTO(
         UUID acaoGerrId,
         String acaoGerr,
         boolean temNotaFiscal,
-        boolean temComprovante
+        boolean temComprovante,
+        String dataEmissao,
+        Integer numeroParcela
 ) {
 
     public DespesaResponseDTO(UUID id, BigDecimal valor, String dataCompetencia, String status,
                               String nomeInstrutor, String nomeEmpresa, String observacao, String emitente) {
-        this(id, valor, dataCompetencia, status, nomeInstrutor, nomeEmpresa, observacao, null, emitente, null, null, null, null, false, false);
+        this(id, valor, dataCompetencia, status, nomeInstrutor, nomeEmpresa, observacao, null, emitente, null, null, null, null, false, false, null, null);
     }
 }
