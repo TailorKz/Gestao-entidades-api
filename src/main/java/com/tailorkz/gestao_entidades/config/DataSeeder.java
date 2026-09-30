@@ -2,10 +2,12 @@ package com.tailorkz.gestao_entidades.config;
 
 import com.tailorkz.gestao_entidades.domain.enums.Categoria;
 import com.tailorkz.gestao_entidades.domain.enums.Role;
+import com.tailorkz.gestao_entidades.domain.model.ContaBancaria;
 import com.tailorkz.gestao_entidades.domain.model.Fomento;
 import com.tailorkz.gestao_entidades.domain.model.Parcela;
 import com.tailorkz.gestao_entidades.domain.model.Tenant;
 import com.tailorkz.gestao_entidades.domain.model.Usuario;
+import com.tailorkz.gestao_entidades.domain.repository.ContaBancariaRepository;
 import com.tailorkz.gestao_entidades.domain.repository.FomentoRepository;
 import com.tailorkz.gestao_entidades.domain.repository.ParcelaRepository;
 import com.tailorkz.gestao_entidades.domain.repository.TenantRepository;
@@ -30,6 +32,7 @@ public class DataSeeder implements ApplicationRunner {
     private final UsuarioRepository usuarioRepository;
     private final FomentoRepository fomentoRepository;
     private final ParcelaRepository parcelaRepository;
+    private final ContaBancariaRepository contaBancariaRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Value("${app.seed.ativo:true}")
@@ -60,21 +63,40 @@ public class DataSeeder implements ApplicationRunner {
                       UsuarioRepository usuarioRepository,
                       FomentoRepository fomentoRepository,
                       ParcelaRepository parcelaRepository,
+                      ContaBancariaRepository contaBancariaRepository,
                       PasswordEncoder passwordEncoder) {
         this.tenantRepository = tenantRepository;
         this.usuarioRepository = usuarioRepository;
         this.fomentoRepository = fomentoRepository;
         this.parcelaRepository = parcelaRepository;
+        this.contaBancariaRepository = contaBancariaRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
     @Override
     public void run(ApplicationArguments args) {
+        semearContasBancarias();
         if (!ativo) {
             log.info("Seed desativado (app.seed.ativo=false).");
             return;
         }
         semear();
+    }
+
+    // Contas das prestações bancárias (dados fixos de referência): são semeadas
+    // SEMPRE que a tabela estiver vazia, independentemente do app.seed.ativo.
+    private void semearContasBancarias() {
+        if (contaBancariaRepository.count() > 0) {
+            return;
+        }
+        List<ContaBancaria> contas = List.of(
+                ContaBancaria.builder().banco("Banco do Brasil").finalidade("Esporte").ordem(1).build(),
+                ContaBancaria.builder().banco("Banco do Brasil").finalidade("Cultura").ordem(2).build(),
+                ContaBancaria.builder().banco("SICREDI").finalidade("Esporte").ordem(3).build(),
+                ContaBancaria.builder().banco("SICOOB").finalidade("Cultura").ordem(4).build()
+        );
+        contaBancariaRepository.saveAll(contas);
+        log.info("Seed: 4 contas bancárias criadas (Prestação Bancos).");
     }
 
     private void semear() {
