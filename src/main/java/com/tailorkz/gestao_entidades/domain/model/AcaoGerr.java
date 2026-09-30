@@ -3,6 +3,8 @@ package com.tailorkz.gestao_entidades.domain.model;
 import com.tailorkz.gestao_entidades.domain.enums.Categoria;
 import jakarta.persistence.*;
 import lombok.*;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -32,4 +34,13 @@ public class AcaoGerr {
 
     @Column(nullable = false)
     private boolean ativo;
+
+    @ManyToMany(fetch = FetchType.EAGER)
+    @JoinTable(
+            name = "tb_acao_gerr_instrutor",
+            joinColumns = @JoinColumn(name = "acao_gerr_id"),
+            inverseJoinColumns = @JoinColumn(name = "usuario_id")
+    )
+    @Builder.Default
+    private Set<Usuario> instrutores = new HashSet<>();
 }

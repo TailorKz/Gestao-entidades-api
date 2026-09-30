@@ -1,16 +1,22 @@
 package com.tailorkz.gestao_entidades.controller;
 
 import com.tailorkz.gestao_entidades.domain.enums.Categoria;
+import com.tailorkz.gestao_entidades.domain.enums.Role;
 import com.tailorkz.gestao_entidades.domain.model.AcaoGerr;
+import com.tailorkz.gestao_entidades.domain.model.Usuario;
 import com.tailorkz.gestao_entidades.domain.repository.AcaoGerrRepository;
+import com.tailorkz.gestao_entidades.domain.repository.UsuarioRepository;
 import com.tailorkz.gestao_entidades.security.SegurancaService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/acoes-gerr")
@@ -18,10 +24,14 @@ import java.util.UUID;
 public class AcaoGerrController {
 
     private final AcaoGerrRepository acaoGerrRepository;
+    private final UsuarioRepository usuarioRepository;
     private final SegurancaService segurancaService;
 
-    public AcaoGerrController(AcaoGerrRepository acaoGerrRepository, SegurancaService segurancaService) {
+    public AcaoGerrController(AcaoGerrRepository acaoGerrRepository,
+                              UsuarioRepository usuarioRepository,
+                              SegurancaService segurancaService) {
         this.acaoGerrRepository = acaoGerrRepository;
+        this.usuarioRepository = usuarioRepository;
         this.segurancaService = segurancaService;
     }
 
@@ -38,7 +48,7 @@ public class AcaoGerrController {
 
         List<AcaoGerrDTO> ordenadas = acoes.stream()
                 .sorted(java.util.Comparator.comparing(AcaoGerr::getPosicao, java.util.Comparator.nullsLast(Integer::compareTo)))
-                .map(a -> new AcaoGerrDTO(a.getId(), a.getCategoria().name(), a.getNome(), a.getPosicao(), a.isAtivo()))
+                .map(this::toDTO)
                 .toList();
         return ResponseEntity.ok(ordenadas);
     }
@@ -74,6 +84,9 @@ public class AcaoGerrController {
         }
         if (dto.ativo() != null) {
             acao.setAtivo(dto.ativo());
+        }
+        if (dto.instrutores() != null) {
+            acao.setInstrutores(carregarInstrutores(dto.instrutores()));
         }
         acaoGerrRepository.save(acao);
         return ResponseEntity.ok(toDTO(acao));
@@ -111,7 +124,23 @@ public class AcaoGerrController {
     }
 
     private AcaoGerrDTO toDTO(AcaoGerr acao) {
-        return new AcaoGerrDTO(acao.getId(), acao.getCategoria().name(), acao.getNome(), acao.getPosicao(), acao.isAtivo());
+        Set<UUID> idInstrutores = acao.getInstrutores().stream()
+                .map(Usuario::getId)
+                .collect(Collectors.toSet());
+        return new AcaoGerrDTO(acao.getId(), acao.getCategoria().name(), acao.getNome(), acao.getPosicao(), acao.isAtivo(), idInstrutores);
+    }
+
+    private Set<Usuario> carregarInstrutores(Set<UUID> ids) {
+        if (ids == null || ids.isEmpty()) return new HashSet<>();
+        List<Usuario> usuarios = usuarioRepository.findAllById(ids);
+        if (usuarios.size() != ids.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Um ou mais instrutores não foram encontrados.");
+        }
+        boolean todosSaoInstrutores = usuarios.stream().allMatch(u -> u.getRole() == Role.INSTRUTOR);
+        if (!todosSaoInstrutores) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Somente instrutores podem ser vinculados a uma ação.");
+        }
+        return new HashSet<>(usuarios);
     }
 
     private Categoria parseCategoria(String categoria) {
@@ -124,7 +153,7 @@ public class AcaoGerrController {
     }
 }
 
-record AcaoGerrDTO(UUID id, String categoria, String nome, Integer posicao, boolean ativo) {}
+record AcaoGerrDTO(UUID id, String categoria, String nome, Integer posicao, boolean ativo, Set<UUID> instrutores) {}
 record AcaoGerrRequestDTO(String categoria, String nome) {}
-record AcaoGerrEditDTO(String nome, Boolean ativo) {}
+record AcaoGerrEditDTO(String nome, Boolean ativo, Set<UUID> instrutores) {}
 record ReordenarAcoesDTO(String categoria, List<UUID> ids) {}

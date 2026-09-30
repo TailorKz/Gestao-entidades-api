@@ -17,4 +17,12 @@ public interface AcaoGerrRepository extends JpaRepository<AcaoGerr, UUID> {
 
     @Query("select coalesce(max(a.posicao), 0) from AcaoGerr a where a.categoria = :categoria")
     Integer maxPosicaoDaCategoria(@Param("categoria") Categoria categoria);
+
+    @Query("""
+            select distinct a from AcaoGerr a join a.instrutores u
+            where a.categoria = :categoria and a.ativo = true and u.id = :instrutorId
+            order by a.posicao asc
+            """)
+    List<AcaoGerr> findAtivasVinculadasAInstrutor(@Param("categoria") Categoria categoria,
+                                                  @Param("instrutorId") UUID instrutorId);
 }
