@@ -15,12 +15,18 @@ import org.springframework.web.server.ResponseStatusException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/dashboard")
 @CrossOrigin(origins = "*")
 public class DashboardController {
+
+    // Cada instrutor deve ter 2 pagamentos lançados por parcela. Quem tiver menos
+    // aparece como pendente na lista de atenção, com a quantidade que falta.
+    private static final int PAGAMENTOS_ESPERADOS = 2;
 
     private final UsuarioRepository usuarioRepository;
     private final DespesaRepository despesaRepository;
@@ -54,18 +60,31 @@ public class DashboardController {
 
         List<Despesa> despesas = despesaRepository.findByParcelaId(parcelaId);
 
-        List<UUID> idsQueEnviaram = despesas.stream()
-                .map(d -> d.getUsuario().getId())
-                .toList();
+        // Conta quantos lançamentos cada instrutor já tem na parcela.
+        // A regra é PAGAMENTOS_ESPERADOS por instrutor: quem tem menos vira pendente,
+        // mesmo que já tenha lançado parte dos pagamentos.
+        Map<UUID, Long> pagamentosPorInstrutor = despesas.stream()
+                .filter(d -> d.getUsuario() != null)
+                .collect(Collectors.groupingBy(d -> d.getUsuario().getId(), Collectors.counting()));
 
         List<InstrutorPendenteDTO> pendentes = instrutores.stream()
-                .filter(u -> !idsQueEnviaram.contains(u.getId()))
-                .map(u -> new InstrutorPendenteDTO(
-                        u.getId(),
-                        u.getNome(),
-                        u.getCategoria() != null ? u.getCategoria().name() : "Não definida"
-                ))
+                .map(u -> {
+                    long lancados = pagamentosPorInstrutor.getOrDefault(u.getId(), 0L);
+                    long faltantes = Math.max(0L, PAGAMENTOS_ESPERADOS - lancados);
+                    return new InstrutorPendenteDTO(
+                            u.getId(),
+                            u.getNome(),
+                            u.getCategoria() != null ? u.getCategoria().name() : "Não definida",
+                            (int) lancados,
+                            (int) faltantes
+                    );
+                })
+                .filter(i -> i.pagamentosFaltantes() > 0)
                 .toList();
+
+        int pagamentosFaltantesTotal = pendentes.stream()
+                .mapToInt(InstrutorPendenteDTO::pagamentosFaltantes)
+                .sum();
 
         BigDecimal totalGasto = parcela.getValorInicial().subtract(parcela.getSaldoAtual());
         double saude = 0.0;
@@ -79,12 +98,20 @@ public class DashboardController {
                 pendentes.size(),
                 despesas.size(),
                 (int) saude,
-                pendentes
+                pendentes,
+                PAGAMENTOS_ESPERADOS,
+                pagamentosFaltantesTotal,
+                instrutores.size() - pendentes.size()
         );
 
         return ResponseEntity.ok(resumo);
     }
 }
 
-record InstrutorPendenteDTO(UUID id, String nome, String categoria) {}
-record DashboardResumoDTO(int totalInstrutores, int instrutoresPendentes, int prestacoesRecebidas, int saudeParcela, List<InstrutorPendenteDTO> listaPendentes) {}
+record InstrutorPendenteDTO(UUID id, String nome, String categoria,
+                            int pagamentosLancados, int pagamentosFaltantes) {}
+
+record DashboardResumoDTO(int totalInstrutores, int instrutoresPendentes, int prestacoesRecebidas,
+                          int saudeParcela, List<InstrutorPendenteDTO> listaPendentes,
+                          int pagamentosEsperadosPorInstrutor, int pagamentosFaltantesTotal,
+                          int instrutoresCompletos) {}

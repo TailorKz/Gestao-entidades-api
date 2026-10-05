@@ -11,9 +11,11 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetBucketLocationRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+import software.amazon.awssdk.core.ResponseInputStream;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -117,5 +119,15 @@ public class ArmazenamentoS3Service implements ArmazenamentoArquivoService {
                 .build();
 
         return s3Presigner.presignGetObject(presignRequest).url().toString();
+    }
+
+    // Lê o objeto do S3 como fluxo, para repassar os bytes ao cliente sem carregá-los em memória
+    public ResponseInputStream<GetObjectResponse> abrirLeitura(String chaveArquivo) {
+        GetObjectRequest request = GetObjectRequest.builder()
+                .bucket(bucketName)
+                .key(chaveArquivo)
+                .build();
+
+        return s3Client.getObject(request);
     }
 }
