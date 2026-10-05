@@ -151,12 +151,17 @@ public class GinasioController {
         }
 
         String rotuloPeriodo;
+        Locale ptBr = new Locale("pt", "BR");
         if (inicio.equals(fim)) {
-            rotuloPeriodo = inicio.getMonth().getDisplayName(java.time.format.TextStyle.FULL, new Locale("pt", "BR"))
+            rotuloPeriodo = inicio.getMonth().getDisplayName(java.time.format.TextStyle.FULL, ptBr)
                     + " de " + inicio.getYear();
+        } else if (inicio.plusMonths(1).equals(fim)) {
+            rotuloPeriodo = inicio.getMonth().getDisplayName(java.time.format.TextStyle.FULL, ptBr)
+                    + " e " + fim.getMonth().getDisplayName(java.time.format.TextStyle.FULL, ptBr)
+                    + " de " + fim.getYear();
         } else {
-            rotuloPeriodo = inicio.getMonth().getDisplayName(java.time.format.TextStyle.FULL, new Locale("pt", "BR"))
-                    + " e " + fim.getMonth().getDisplayName(java.time.format.TextStyle.FULL, new Locale("pt", "BR"))
+            rotuloPeriodo = inicio.getMonth().getDisplayName(java.time.format.TextStyle.FULL, ptBr)
+                    + " a " + fim.getMonth().getDisplayName(java.time.format.TextStyle.FULL, ptBr)
                     + " de " + fim.getYear();
         }
 
@@ -216,7 +221,7 @@ public class GinasioController {
 
     private List<LocalDate> ocorrencias(YearMonth inicio, YearMonth fim, DayOfWeek dayOfWeek) {
         List<LocalDate> lista = new ArrayList<>();
-        for (YearMonth ym : new YearMonth[]{inicio, fim}) {
+        for (YearMonth ym = inicio; !ym.isAfter(fim); ym = ym.plusMonths(1)) {
             for (int dia = 1; dia <= ym.lengthOfMonth(); dia++) {
                 LocalDate data = ym.atDay(dia);
                 if (data.getDayOfWeek() == dayOfWeek) lista.add(data);
