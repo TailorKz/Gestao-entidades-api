@@ -209,6 +209,7 @@ public class DespesaController {
             estimativa.setDescricao(descEstimativa);
             estimativa.setValor(valor);
             estimativa.setParcela(parcela);
+            estimativa.setOrdem(despesaEstimadaRepository.maiorOrdemDaParcela(parcela.getId()) + 1);
             despesaEstimadaRepository.save(estimativa);
         }
 
@@ -234,7 +235,35 @@ public class DespesaController {
     @GetMapping("/parcela/{parcelaId}")
     public ResponseEntity<List<DespesaResponseDTO>> listarPorParcela(@PathVariable UUID parcelaId) {
         Parcela parcela = validarParcelaAutenticada(parcelaId);
-        return ResponseEntity.ok(toDTO(despesaRepository.findByParcelaId(parcela.getId())));
+        return ResponseEntity.ok(toDTO(despesaRepository.findByParcelaIdOrderByOrdemAscIdAsc(parcela.getId())));
+    }
+
+    @PutMapping("/ordem")
+    public ResponseEntity<List<DespesaResponseDTO>> reordenar(@RequestBody ReordenarDespesasDTO dto) {
+        segurancaService.garantirEhGestor("Somente gestores podem reordenar as despesas.");
+        Parcela parcela = validarParcelaAutenticada(dto.parcelaId());
+
+        List<Despesa> todas = despesaRepository.findByParcelaIdOrderByOrdemAscIdAsc(parcela.getId());
+        Map<UUID, Despesa> porId = new HashMap<>();
+        todas.forEach(d -> porId.put(d.getId(), d));
+
+        int ordem = 1;
+        if (dto.ids() != null) {
+            for (UUID id : dto.ids()) {
+                Despesa d = porId.remove(id);
+                if (d != null) {
+                    d.setOrdem(ordem++);
+                }
+            }
+        }
+        for (Despesa d : todas) {
+            if (porId.containsKey(d.getId())) {
+                d.setOrdem(ordem++);
+            }
+        }
+        despesaRepository.saveAll(todas);
+
+        return ResponseEntity.ok(toDTO(despesaRepository.findByParcelaIdOrderByOrdemAscIdAsc(parcela.getId())));
     }
 
     @GetMapping("/usuario/{usuarioId}")
@@ -803,6 +832,7 @@ record VincularComprovanteDTO(UUID parcelaId, UUID comprovanteId, UUID despesaId
 record AtualizarTipoDocumentoDTO(String tipoDocumento) {}
 record AtualizarAcaoGerrDTO(UUID acaoGerrId) {}
 record ProntasContagemDTO(UUID parcelaId, long quantidade) {}
+record ReordenarDespesasDTO(UUID parcelaId, List<UUID> ids) {}
 record AnexoLote(UUID despesaId, TipoDocumento tipo, String chaveS3, String urlS3) {}
 record EditarDespesaDTO(
         BigDecimal valor,

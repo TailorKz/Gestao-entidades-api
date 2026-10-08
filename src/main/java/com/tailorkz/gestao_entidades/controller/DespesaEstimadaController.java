@@ -39,6 +39,7 @@ public class DespesaEstimadaController {
         nova.setDescricao(dto.descricao());
         nova.setValor(dto.valor());
         nova.setParcela(parcela);
+        nova.setOrdem(repository.maiorOrdemDaParcela(parcela.getId()) + 1);
 
         DespesaEstimada salva = repository.save(nova);
 
@@ -50,7 +51,38 @@ public class DespesaEstimadaController {
     public ResponseEntity<List<DespesaEstimadaResponseDTO>> listarPorParcela(@PathVariable UUID parcelaId) {
         Parcela parcela = validarParcela(parcelaId);
 
-        List<DespesaEstimadaResponseDTO> lista = repository.findByParcelaId(parcela.getId()).stream()
+        List<DespesaEstimadaResponseDTO> lista = repository.findByParcelaIdOrderByOrdemAscIdAsc(parcela.getId()).stream()
+                .map(e -> new DespesaEstimadaResponseDTO(e.getId(), e.getDescricao(), e.getValor()))
+                .toList();
+        return ResponseEntity.ok(lista);
+    }
+
+    @PutMapping("/ordem")
+    public ResponseEntity<List<DespesaEstimadaResponseDTO>> reordenar(@RequestBody ReordenarEstimadaDTO dto) {
+        Parcela parcela = validarParcela(dto.parcelaId());
+
+        List<DespesaEstimada> todas = repository.findByParcelaIdOrderByOrdemAscIdAsc(parcela.getId());
+        java.util.Map<UUID, DespesaEstimada> porId = new java.util.HashMap<>();
+        todas.forEach(e -> porId.put(e.getId(), e));
+
+        int ordem = 1;
+        if (dto.ids() != null) {
+            for (UUID id : dto.ids()) {
+                DespesaEstimada e = porId.remove(id);
+                if (e != null) {
+                    e.setOrdem(ordem++);
+                }
+            }
+        }
+        // Itens não citados na requisição mantêm-se ordenados ao final.
+        for (DespesaEstimada e : todas) {
+            if (porId.containsKey(e.getId())) {
+                e.setOrdem(ordem++);
+            }
+        }
+        repository.saveAll(todas);
+
+        List<DespesaEstimadaResponseDTO> lista = repository.findByParcelaIdOrderByOrdemAscIdAsc(parcela.getId()).stream()
                 .map(e -> new DespesaEstimadaResponseDTO(e.getId(), e.getDescricao(), e.getValor()))
                 .toList();
         return ResponseEntity.ok(lista);
@@ -95,3 +127,4 @@ public class DespesaEstimadaController {
 
 record DespesaEstimadaRequestDTO(String descricao, BigDecimal valor, UUID parcelaId) {}
 record DespesaEstimadaResponseDTO(UUID id, String descricao, BigDecimal valor) {}
+record ReordenarEstimadaDTO(UUID parcelaId, List<UUID> ids) {}

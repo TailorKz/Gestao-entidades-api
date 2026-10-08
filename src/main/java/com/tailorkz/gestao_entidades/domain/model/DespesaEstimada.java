@@ -22,6 +22,9 @@ public class DespesaEstimada {
     @JoinColumn(name = "parcela_id", nullable = false)
     private Parcela parcela;
 
+    @Column(name = "ordem")
+    private Integer ordem;
+
     // Getters e Setters
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
@@ -34,4 +37,7 @@ public class DespesaEstimada {
 
     public Parcela getParcela() { return parcela; }
     public void setParcela(Parcela parcela) { this.parcela = parcela; }
+
+    public Integer getOrdem() { return ordem; }
+    public void setOrdem(Integer ordem) { this.ordem = ordem; }
 }

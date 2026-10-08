@@ -30,6 +30,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
@@ -45,6 +46,11 @@ import java.util.zip.ZipInputStream;
 
 @Service
 public class ConciliacaoService {
+
+    // Janela temporal entre a emissão da nota e o débito bancário. O débito pode
+    // acontecer alguns dias antes (antecipação/nota retroativa) e até ~45 dias depois.
+    private static final long DIAS_TOLERANCIA_ANTES = 5;
+    private static final long DIAS_TOLERANCIA_DEPOIS = 45;
 
     private final OcrService ocrService;
     private final ComprovanteBbRepository comprovanteRepository;
@@ -120,7 +126,7 @@ public class ConciliacaoService {
                     .filter(d -> !ouVincular.contains(d.getId()))
                     .filter(d -> esperaMatch(d, comp))
                     .collect(Collectors.toList());
-            Despesa escolhida = escolherUnica(disponiveis, comp);
+            Despesa escolhida = escolherMelhor(disponiveis, comp);
             if (escolhida != null) {
                 ouVincular.add(escolhida.getId());
                 vincular(comp, escolhida,
@@ -148,9 +154,13 @@ public class ConciliacaoService {
         if (!matchForte(comp, despesa)) return false;
 
         LocalDate debito = comp.getDataPagamento();
-        if (debito != null && despesa.getDataEmissao() != null) {
+        // Sem data lida no comprovante: confia no valor + nome forte (a desambiguação
+        // por proximidade de data só entra quando há mais de uma candidata).
+        if (debito == null) return true;
+
+        if (despesa.getDataEmissao() != null) {
             long dias = ChronoUnit.DAYS.between(despesa.getDataEmissao(), debito);
-            if (dias >= 0 && dias <= 45) return true;
+            if (dias >= -DIAS_TOLERANCIA_ANTES && dias <= DIAS_TOLERANCIA_DEPOIS) return true;
         }
         return dentroJanela(despesa, debito);
     }
@@ -165,12 +175,22 @@ public class ConciliacaoService {
                 && (competencia.equals(mesDebito) || competencia.equals(mesDebito.minusMonths(1)));
     }
 
-    private Despesa escolherUnica(List<Despesa> candidatas, ComprovanteBb comp) {
-        List<Despesa> fortes = candidatas.stream()
-                .filter(d -> d.getValor().compareTo(comp.getValor()) == 0)
-                .filter(d -> matchForte(comp, d))
-                .collect(Collectors.toList());
-        return fortes.size() == 1 ? fortes.get(0) : null;
+    private Despesa escolherMelhor(List<Despesa> candidatas, ComprovanteBb comp) {
+        if (candidatas.isEmpty()) return null;
+        if (candidatas.size() == 1) return candidatas.get(0);
+        // Mais de uma candidata (mesmo valor + nome forte): desempata pela data de
+        // emissão mais próxima do débito. Em empate, não arrisca — deixa pendente.
+        LocalDate debito = comp.getDataPagamento();
+        List<Despesa> ordenadas = new ArrayList<>(candidatas);
+        ordenadas.sort(Comparator.comparingLong(d -> distanciaDias(d, debito)));
+        long melhor = distanciaDias(ordenadas.get(0), debito);
+        long segundo = distanciaDias(ordenadas.get(1), debito);
+        return melhor < segundo ? ordenadas.get(0) : null;
+    }
+
+    private long distanciaDias(Despesa despesa, LocalDate debito) {
+        if (debito == null || despesa.getDataEmissao() == null) return Long.MAX_VALUE;
+        return Math.abs(ChronoUnit.DAYS.between(despesa.getDataEmissao(), debito));
     }
 
     private ImportacaoZip importarZip(Tenant tenant, Categoria categoria, LocalDate referencia, MultipartFile zip) {
@@ -428,7 +448,7 @@ public class ConciliacaoService {
             List<Despesa> disponiveis = candidatas.stream()
                     .filter(d -> !ouVincular.contains(d.getId()))
                     .collect(Collectors.toList());
-            Despesa escolhida = escolherUnica(disponiveis, comp);
+            Despesa escolhida = escolherMelhor(disponiveis, comp);
             if (escolhida != null) {
                 ouVincular.add(escolhida.getId());
                 vincular(comp, escolhida,

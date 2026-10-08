@@ -216,7 +216,8 @@ public class OcrService {
         Pattern pattern = Pattern.compile(padraoRegex, Pattern.DOTALL | Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE | Pattern.MULTILINE);
         Matcher matcher = pattern.matcher(texto);
         if (matcher.find()) {
-            return matcher.group(1).trim();
+            String captura = matcher.group(1);
+            return captura == null ? "" : captura.trim();
         }
         return "";
     }
@@ -261,7 +262,7 @@ public class OcrService {
     private String extrairDataComprovante(String texto) {
         String data = extrairPorRegex(texto, "(?i)^\\s*d[ée]bito\\s+em\\s*:\\s*(\\d{2}/\\d{2}/\\d{4})");
         if (data.isEmpty()) data = extrairPorRegex(texto, "(?i)^\\s*data\\s+da\\s+transfer[eê]ncia\\s+(\\d{2}/\\d{2}/\\d{4})");
-        if (data.isEmpty()) data = extrairPorRegex(texto, "(?i)^\\s*data\\s+(\\(evento\\)\\s*)?do\\s+pagamento[^\\n]*?\\s*(\\d{2}/\\d{2}/\\d{4})");
+        if (data.isEmpty()) data = extrairPorRegex(texto, "(?i)^\\s*data\\s+(?:\\(evento\\)\\s*)?do\\s+pagamento[^\\n]*?\\s*(\\d{2}/\\d{2}/\\d{4})");
         if (data.isEmpty()) data = extrairPorRegex(texto, "(?i)^\\s*data\\s*:\\s*(\\d{2}/\\d{2}/\\d{4})");
         if (data.isEmpty()) data = primeiraDataAutentica(texto);
         return data;
@@ -306,13 +307,16 @@ public class OcrService {
             if (documento.isEmpty()) documento = extrairDocumento(textoPdf);
             documento = limparDocumento(documento);
 
-            String favorecido = extrairPorRegex(textoPdf, "(?i)nome\\s+do\\s+favorecido[^\\n]*\\n\\s*([^\\n]+)");
-            if (favorecido.isEmpty()) favorecido = extrairPorRegex(textoPdf, "(?i)pago\\s+para\\s*:\\s*([^\\n]+)");
-            if (favorecido.isEmpty()) favorecido = extrairPorRegex(textoPdf, "(?i)transferido\\s+para[^\\n]*\\n\\s*cliente\\s*:\\s*([^\\n]+)");
-            if (favorecido.isEmpty()) favorecido = extrairPorRegex(textoPdf, "(?i)favorecido\\s*:\\s*([^\\n]+)");
+            // Favorecido é QUEM RECEBE o PIX/débito. Nunca usar "nome do pagador"
+            // (que é a própria entidade): se nada for achado, o nome fica vazio e a
+            // IA do Gemini tenta extrair em seguida.
+            String favorecido = extrairPorRegex(textoPdf, "(?i)nome\\s+do\\s+favorecido\\s*:?[^\\n]*\\n\\s*([^\\n]+)");
+            if (favorecido.isEmpty()) favorecido = extrairPorRegex(textoPdf, "(?i)pago\\s+para\\s*:?\\s*([^\\n]+)");
+            if (favorecido.isEmpty()) favorecido = extrairPorRegex(textoPdf, "(?i)transferido\\s+para[^\\n]*\\n\\s*cliente\\s*:?\\s*([^\\n]+)");
+            if (favorecido.isEmpty()) favorecido = extrairPorRegex(textoPdf, "(?i)favorecido\\s*:?\\s*([^\\n]+)");
+            if (favorecido.isEmpty()) favorecido = extrairPorRegex(textoPdf, "(?i)recebedor\\s*:?\\s*([^\\n]+)");
             if (favorecido.isEmpty()) favorecido = extrairPorRegex(textoPdf, "(?i)denomina[cç][aã]o\\s+social\\s*/\\s*nome[^\\n]*\\n\\s*([^\\n]+)");
-            if (favorecido.isEmpty()) favorecido = extrairPorRegex(textoPdf, "(?i)nome\\s+do\\s+pagador[^\\n]*\\n\\s*([^\\n]+)");
-            favorecido = favorecido.replaceAll("\\s+", " ").trim();
+            favorecido = limparFavorecido(favorecido);
 
             String autenticacao = extrairPorRegex(textoPdf, "(?i)autentica[cç][aã]o[^\\n]*?\\s*([A-Z0-9][A-Z0-9.()+\\-]{7,})");
             if (autenticacao.isEmpty()) autenticacao = extrairPorRegex(textoPdf, "(?i)c[óo]digo\\s+de\\s+transa[cç][aã]o[^\\n]*?\\s*([A-Z0-9][A-Z0-9.()+\\-]{7,})");
@@ -392,6 +396,27 @@ public class OcrService {
         String cpf = extrairPorRegex(texto, "(\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2})");
         if (!cpf.isEmpty()) return limparDocumento(cpf);
         return "";
+    }
+
+    // Limpa o nome do favorecido: remove rótulos residuais e corta o que vier
+    // depois de CPF/CNPJ (que costuma ficar na mesma linha do nome).
+    private String limparFavorecido(String s) {
+        if (s == null) return "";
+        String n = s.replaceAll("\\s+", " ").trim();
+        n = n.replaceAll("(?i)^(nome\\s+do\\s+favorecido|favorecido|recebedor|pago\\s+para|transferido\\s+para|nome)\\s*:?\\s*", "");
+        int corte = indexOfIgnoreCase(n, "CNPJ", "CPF", "DOCUMENTO");
+        if (corte > 0) n = n.substring(0, corte);
+        return n.replaceAll("[\\s:;\\-]+$", "").trim();
+    }
+
+    private int indexOfIgnoreCase(String texto, String... alvos) {
+        String upper = texto.toUpperCase();
+        int menor = -1;
+        for (String alvo : alvos) {
+            int idx = upper.indexOf(alvo);
+            if (idx >= 0 && (menor == -1 || idx < menor)) menor = idx;
+        }
+        return menor;
     }
 
     private String limparDocumento(String documento) {

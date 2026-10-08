@@ -18,6 +18,13 @@ public interface DespesaRepository extends JpaRepository<Despesa, UUID> {
     @EntityGraph(attributePaths = {"usuario", "parcela", "acaoGerr"})
     List<Despesa> findByParcelaId(UUID parcelaId);
 
+    // Ordenação manual (definida pelo gestor) das despesas de uma parcela.
+    @EntityGraph(attributePaths = {"usuario", "parcela", "acaoGerr"})
+    List<Despesa> findByParcelaIdOrderByOrdemAscIdAsc(UUID parcelaId);
+
+    @Query("select coalesce(max(d.ordem), 0) from Despesa d where d.parcela.id = :parcelaId")
+    Integer maiorOrdemDaParcela(@Param("parcelaId") UUID parcelaId);
+
     @EntityGraph(attributePaths = {"usuario", "parcela", "acaoGerr"})
     List<Despesa> findByUsuarioId(UUID usuarioId);
 

@@ -37,6 +37,9 @@ public class DespesaService {
                     "Valor da despesa excede o saldo disponível da parcela (R$ " + parcela.getSaldoAtual() + ").");
         }
 
+        Integer proximaOrdem = despesaRepository.maiorOrdemDaParcela(parcela.getId());
+        novaDespesa.setOrdem((proximaOrdem == null ? 0 : proximaOrdem) + 1);
+
         Despesa despesaSalva = despesaRepository.save(novaDespesa);
 
         parcela.setSaldoAtual(parcela.getSaldoAtual().subtract(despesaSalva.getValor()));

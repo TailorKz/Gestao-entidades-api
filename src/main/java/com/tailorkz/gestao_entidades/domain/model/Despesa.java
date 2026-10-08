@@ -70,4 +70,7 @@ public class Despesa {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "acao_gerr_id")
     private AcaoGerr acaoGerr;
+
+    @Column(name = "ordem")
+    private Integer ordem;
 }
