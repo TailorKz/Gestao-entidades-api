@@ -484,6 +484,23 @@ public class DespesaController {
                 segurancaService.tenantDoLogado(), parseCategoria(categoria))));
     }
 
+    @GetMapping("/conciliacao/comprovantes-pendentes")
+    public ResponseEntity<List<ComprovanteDTO>> comprovantesPendentesDoSetor(@RequestParam("categoria") String categoria) {
+        segurancaService.garantirEhGestor("Somente gestores podem consultar comprovantes pendentes.");
+        return ResponseEntity.ok(conciliacaoService.listarPendentesDoSetor(
+                segurancaService.tenantDoLogado(), parseCategoria(categoria)));
+    }
+
+    @GetMapping("/{despesaId}/comprovante")
+    public ResponseEntity<ComprovanteDTO> comprovanteDaDespesa(@PathVariable UUID despesaId) {
+        Despesa despesa = buscarDespesa(despesaId);
+        segurancaService.garantirAcessoTenant(despesa.getParcela().getFomento().getTenant().getId());
+        List<ComprovanteDTO> comprovantes = conciliacaoService.listarPorDespesa(despesaId);
+        return comprovantes.isEmpty()
+                ? ResponseEntity.noContent().build()
+                : ResponseEntity.ok(comprovantes.get(0));
+    }
+
     @PostMapping("/conciliacao/vincular")
     public ResponseEntity<ComprovanteDTO> vincularComprovante(@RequestBody VincularComprovanteDTO dto) {
         segurancaService.garantirEhGestor("Somente gestores podem vincular comprovantes.");

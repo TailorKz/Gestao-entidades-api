@@ -275,6 +275,13 @@ public class ConciliacaoService {
         return new SetorDespesas(semComprovante, tipos);
     }
 
+    // Comprovantes importados para o setor que ainda não foram vinculados a
+    // nenhuma despesa (balde pendente) — usados no vínculo manual pela prestação.
+    public List<ComprovanteDTO> listarPendentesDoSetor(UUID tenantId, Categoria categoria) {
+        return paraDTOList(comprovanteRepository
+                .findByTenant_IdAndCategoriaAndDespesaIsNull(tenantId, categoria));
+    }
+
     public List<ComprovanteDTO> listarComprovantesDoMes(UUID tenantId, Categoria categoria, int ano, int mes) {
         LocalDate inicio = LocalDate.of(ano, mes, 1);
         LocalDate fim = inicio.plusMonths(1).minusDays(1);
@@ -534,6 +541,11 @@ public class ConciliacaoService {
 
     public List<ComprovanteDTO> listarComprovantes(UUID parcelaId) {
         return paraDTOList(comprovanteRepository.findByParcelaIdOrderByDataPagamentoDesc(parcelaId));
+    }
+
+    // Comprovantes vinculados a uma despesa (na prática, no máximo um).
+    public List<ComprovanteDTO> listarPorDespesa(UUID despesaId) {
+        return paraDTOList(comprovanteRepository.findByDespesaId(despesaId));
     }
 
     public List<ComprovanteDTO> listarVinculados(UUID parcelaId) {
