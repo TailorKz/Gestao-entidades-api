@@ -176,16 +176,18 @@ public class GinasioController {
                                                 List<AjusteGinasio> daPessoa,
                                                 List<AjusteGinasio> gerais) {
         Set<LocalDate> cobrados = new LinkedHashSet<>(base);
-        for (AjusteGinasio a : daPessoa) {
-            if (a.getTipo() == TipoAjuste.ADICIONADO) cobrados.add(a.getData());
-        }
+        // Ajustes gerais (do ginásio) são aplicados primeiro...
         for (AjusteGinasio a : gerais) {
             if (a.getTipo() == TipoAjuste.ADICIONADO) cobrados.add(a.getData());
         }
-        for (AjusteGinasio a : daPessoa) {
+        for (AjusteGinasio a : gerais) {
             if (a.getTipo() == TipoAjuste.REMOVIDO) cobrados.remove(a.getData());
         }
-        for (AjusteGinasio a : gerais) {
+        // ...depois os ajustes da pessoa, que têm prioridade sobre os gerais.
+        for (AjusteGinasio a : daPessoa) {
+            if (a.getTipo() == TipoAjuste.ADICIONADO) cobrados.add(a.getData());
+        }
+        for (AjusteGinasio a : daPessoa) {
             if (a.getTipo() == TipoAjuste.REMOVIDO) cobrados.remove(a.getData());
         }
         return cobrados;
@@ -194,24 +196,32 @@ public class GinasioController {
     private List<DataStatusDTO> montarDatas(List<LocalDate> base,
                                             List<AjusteGinasio> daPessoa,
                                             List<AjusteGinasio> gerais) {
-        Set<LocalDate> removidos = new HashSet<>();
-        Set<LocalDate> adicionados = new HashSet<>();
+        Set<LocalDate> removidosPessoa = new HashSet<>();
+        Set<LocalDate> adicionadosPessoa = new HashSet<>();
         for (AjusteGinasio a : daPessoa) {
-            (a.getTipo() == TipoAjuste.REMOVIDO ? removidos : adicionados).add(a.getData());
+            (a.getTipo() == TipoAjuste.REMOVIDO ? removidosPessoa : adicionadosPessoa).add(a.getData());
         }
+        Set<LocalDate> removidosGerais = new HashSet<>();
+        Set<LocalDate> adicionadosGerais = new HashSet<>();
         for (AjusteGinasio a : gerais) {
-            (a.getTipo() == TipoAjuste.REMOVIDO ? removidos : adicionados).add(a.getData());
+            (a.getTipo() == TipoAjuste.REMOVIDO ? removidosGerais : adicionadosGerais).add(a.getData());
         }
 
         Set<LocalDate> titulos = new TreeSet<>(base);
-        titulos.addAll(removidos);
-        titulos.addAll(adicionados);
+        titulos.addAll(removidosPessoa);
+        titulos.addAll(adicionadosPessoa);
+        titulos.addAll(removidosGerais);
+        titulos.addAll(adicionadosGerais);
 
         List<DataStatusDTO> datas = new ArrayList<>();
         for (LocalDate d : titulos) {
             boolean emBase = base.contains(d);
-            boolean removido = removidos.contains(d);
-            boolean adicionado = adicionados.contains(d);
+            boolean addPessoa = adicionadosPessoa.contains(d);
+            // O ajuste da pessoa tem prioridade sobre o ajuste geral do ginásio.
+            boolean removido = removidosPessoa.contains(d)
+                    || (removidosGerais.contains(d) && !addPessoa);
+            boolean adicionado = !removido
+                    && (addPessoa || adicionadosGerais.contains(d));
             String tipo = removido ? "REMOVIDO"
                     : (adicionado && !emBase ? "ADICIONADO" : "NORMAL");
             datas.add(new DataStatusDTO(d.toString(), tipo));
