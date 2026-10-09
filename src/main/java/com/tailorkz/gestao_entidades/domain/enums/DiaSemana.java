@@ -27,4 +27,11 @@ public enum DiaSemana {
     public DayOfWeek getDayOfWeek() {
         return dayOfWeek;
     }
+
+    public static DiaSemana de(DayOfWeek dayOfWeek) {
+        for (DiaSemana dia : values()) {
+            if (dia.dayOfWeek == dayOfWeek) return dia;
+        }
+        throw new IllegalArgumentException("Dia da semana inválido: " + dayOfWeek);
+    }
 }
