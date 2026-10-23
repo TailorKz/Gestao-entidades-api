@@ -47,7 +47,7 @@ public class DataSeeder implements ApplicationRunner {
     @Value("${app.seed.admin-login:admin}")
     private String adminLogin;
 
-    @Value("${app.seed.admin-senha:admin123}")
+    @Value("${app.seed.admin-senha:}")
     private String adminSenha;
 
     @Value("${app.seed.fomento-ano:2026}")
@@ -117,6 +117,10 @@ public class DataSeeder implements ApplicationRunner {
     private void semearAdmin(Tenant tenant) {
         if (usuarioRepository.findByLogin(adminLogin).isPresent()) {
             return;
+        }
+        if (adminSenha == null || adminSenha.isBlank()) {
+            throw new IllegalStateException(
+                    "APP_SEED_ADMIN_SENHA não configurada. Defina uma senha forte antes de habilitar o seed.");
         }
         Usuario admin = Usuario.builder()
                 .tenant(tenant)

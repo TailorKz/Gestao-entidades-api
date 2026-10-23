@@ -37,41 +37,54 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<?> fazerLogin(@RequestBody LoginRequestDTO dto) {
-        Usuario usuario = usuarioRepository.findByLogin(dto.login())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Senha incorreta."));
-
-        if (!passwordEncoder.matches(dto.senha(), usuario.getSenhaHash())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Senha incorreta.");
+        String chave = dto.login() == null ? "" : dto.login().trim().toLowerCase();
+        if (loginBloqueado(chave)) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Muitas tentativas de login. Aguarde alguns minutos e tente novamente.");
         }
 
-        if (usuario.getPrecisaTrocarSenha()) {
-            return ResponseEntity.status(HttpStatus.ACCEPTED).body(LoginResponseDTO.semToken(
+        try {
+            Usuario usuario = usuarioRepository.findByLogin(dto.login())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Senha incorreta."));
+
+            if (!passwordEncoder.matches(dto.senha(), usuario.getSenhaHash())) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Senha incorreta.");
+            }
+
+            limparFalhas(chave);
+
+            if (usuario.getPrecisaTrocarSenha()) {
+                return ResponseEntity.status(HttpStatus.ACCEPTED).body(LoginResponseDTO.semToken(
+                        usuario.getId(),
+                        usuario.getNome(),
+                        usuario.getRole().name(),
+                        true,
+                        usuario.getTenant().getId(),
+                        usuario.getCategoria() != null ? usuario.getCategoria().name() : null
+                ));
+            }
+
+            String token = jwtService.gerarToken(
+                    usuario.getId(),
+                    usuario.getRole().name(),
+                    usuario.getTenant().getId(),
+                    usuario.getNome(),
+                    usuario.getCategoria() != null ? usuario.getCategoria().name() : ""
+            );
+
+            return ResponseEntity.ok(new LoginResponseDTO(
                     usuario.getId(),
                     usuario.getNome(),
                     usuario.getRole().name(),
-                    true,
+                    false,
+                    token,
                     usuario.getTenant().getId(),
                     usuario.getCategoria() != null ? usuario.getCategoria().name() : null
             ));
+        } catch (ResponseStatusException e) {
+            registrarFalha(chave);
+            throw e;
         }
-
-        String token = jwtService.gerarToken(
-                usuario.getId(),
-                usuario.getRole().name(),
-                usuario.getTenant().getId(),
-                usuario.getNome(),
-                usuario.getCategoria() != null ? usuario.getCategoria().name() : ""
-        );
-
-        return ResponseEntity.ok(new LoginResponseDTO(
-                usuario.getId(),
-                usuario.getNome(),
-                usuario.getRole().name(),
-                false,
-                token,
-                usuario.getTenant().getId(),
-                usuario.getCategoria() != null ? usuario.getCategoria().name() : null
-        ));
     }
 
     @PostMapping("/trocar-senha")
@@ -85,6 +98,12 @@ public class AuthController {
 
         Usuario usuario = usuarioRepository.findById(dto.usuarioId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuário não encontrado."));
+
+        // Prova de identidade: exige a senha provisória/atual correta antes de alterar.
+        if (dto.senhaAtual() == null || dto.senhaAtual().isBlank()
+                || !passwordEncoder.matches(dto.senhaAtual(), usuario.getSenhaHash())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Senha atual incorreta.");
+        }
 
         usuario.setSenhaHash(passwordEncoder.encode(dto.novaSenha()));
         usuario.setPrecisaTrocarSenha(false);
@@ -121,5 +140,31 @@ public class AuthController {
                 usuario.getTenant().getId(),
                 usuario.getCategoria() != null ? usuario.getCategoria().name() : null
         ));
+    }
+
+    // --- Proteção contra força bruta (em memória, por login) ---
+    private static final int MAX_TENTATIVAS = 5;
+    private static final long JANELA_MS = 10 * 60 * 1000L;
+
+    private final java.util.concurrent.ConcurrentHashMap<String, java.util.ArrayDeque<Long>> falhasLogin =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private boolean loginBloqueado(String login) {
+        var fila = falhasLogin.get(login);
+        if (fila == null) return false;
+        long agora = System.currentTimeMillis();
+        fila.removeIf(t -> agora - t > JANELA_MS);
+        return fila.size() >= MAX_TENTATIVAS;
+    }
+
+    private void registrarFalha(String login) {
+        var fila = falhasLogin.computeIfAbsent(login, k -> new java.util.ArrayDeque<>());
+        long agora = System.currentTimeMillis();
+        fila.removeIf(t -> agora - t > JANELA_MS);
+        fila.add(agora);
+    }
+
+    private void limparFalhas(String login) {
+        falhasLogin.remove(login);
     }
 }

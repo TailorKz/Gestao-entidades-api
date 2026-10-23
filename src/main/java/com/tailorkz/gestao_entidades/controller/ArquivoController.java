@@ -1,6 +1,9 @@
 package com.tailorkz.gestao_entidades.controller;
 
+import com.tailorkz.gestao_entidades.domain.repository.ComprovanteBbRepository;
+import com.tailorkz.gestao_entidades.domain.repository.DocumentoAnexoRepository;
 import com.tailorkz.gestao_entidades.domain.service.ArmazenamentoS3Service;
+import com.tailorkz.gestao_entidades.security.SegurancaService;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -20,6 +23,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/arquivos")
@@ -27,9 +31,18 @@ import java.io.OutputStream;
 public class ArquivoController {
 
     private final ArmazenamentoS3Service s3Service;
+    private final DocumentoAnexoRepository documentoAnexoRepository;
+    private final ComprovanteBbRepository comprovanteBbRepository;
+    private final SegurancaService segurancaService;
 
-    public ArquivoController(ArmazenamentoS3Service s3Service) {
+    public ArquivoController(ArmazenamentoS3Service s3Service,
+                             DocumentoAnexoRepository documentoAnexoRepository,
+                             ComprovanteBbRepository comprovanteBbRepository,
+                             SegurancaService segurancaService) {
         this.s3Service = s3Service;
+        this.documentoAnexoRepository = documentoAnexoRepository;
+        this.comprovanteBbRepository = comprovanteBbRepository;
+        this.segurancaService = segurancaService;
     }
 
     /**
@@ -40,6 +53,8 @@ public class ArquivoController {
      */
     @GetMapping("/{nomeArquivo:.+}")
     public ResponseEntity<StreamingResponseBody> lerArquivo(@PathVariable String nomeArquivo) {
+        verificarAcesso(nomeArquivo);
+
         ResponseInputStream<GetObjectResponse> objeto;
         try {
             objeto = s3Service.abrirLeitura(nomeArquivo);
@@ -74,5 +89,20 @@ public class ArquivoController {
         try (InputStream entrada = origem) {
             entrada.transferTo(destino);
         }
+    }
+
+    // Garante que apenas gestores acessem os arquivos, e somente os do próprio tenant.
+    private void verificarAcesso(String chave) {
+        segurancaService.garantirEhGestor("Acesso negado a arquivos.");
+
+        UUID tenantId = documentoAnexoRepository.findTenantIdByUrlS3(chave).stream().findFirst().orElse(null);
+        if (tenantId == null) {
+            tenantId = comprovanteBbRepository.findTenantIdByChaveS3(chave).stream().findFirst().orElse(null);
+        }
+
+        if (tenantId == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Arquivo não encontrado.");
+        }
+        segurancaService.garantirAcessoTenant(tenantId);
     }
 }

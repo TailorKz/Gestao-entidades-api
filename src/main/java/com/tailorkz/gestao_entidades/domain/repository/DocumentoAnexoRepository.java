@@ -20,6 +20,9 @@ public interface DocumentoAnexoRepository extends JpaRepository<DocumentoAnexo, 
 
     List<DocumentoAnexo> findByUrlS3(String urlS3);
 
+    @Query("select a.despesa.parcela.fomento.tenant.id from DocumentoAnexo a where a.urlS3 = :urlS3")
+    List<UUID> findTenantIdByUrlS3(@Param("urlS3") String urlS3);
+
     boolean existsByDespesaIdAndTipo(UUID despesaId, TipoDocumento tipo);
 
     @Query("select distinct a.despesa.id, a.tipo from DocumentoAnexo a where a.despesa.id in :despesaIds")

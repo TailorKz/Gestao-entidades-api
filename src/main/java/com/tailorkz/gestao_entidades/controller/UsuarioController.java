@@ -14,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -39,12 +40,14 @@ public class UsuarioController {
 
     @PostMapping
     public ResponseEntity<?> criarUsuario(@RequestBody CadastroUsuarioDTO dto) {
+        segurancaService.garantirEhGestor("Somente administradores podem criar contas.");
+
         if (usuarioRepository.findByLogin(dto.login()).isPresent()) {
             return ResponseEntity.badRequest().body("Login já em uso!");
         }
 
-        if (dto.role() == Role.SUPER_ADMIN) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Não é permitido criar um SUPER_ADMIN por este canal.");
+        if (dto.role() == Role.SUPER_ADMIN && !segurancaService.ehSuperAdmin()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Somente um SUPER_ADMIN pode criar outro SUPER_ADMIN.");
         }
 
         Tenant tenant;
@@ -75,6 +78,7 @@ public class UsuarioController {
 
     @GetMapping("/instrutores")
     public ResponseEntity<List<UsuarioResponseDTO>> listarInstrutores(@RequestParam(required = false) String categoria) {
+        segurancaService.garantirEhGestor("Somente administradores podem listar a equipe.");
         com.tailorkz.gestao_entidades.domain.enums.Categoria cat = parseCategoria(categoria);
         List<Usuario> instrutores;
         if (segurancaService.ehSuperAdmin()) {
@@ -92,8 +96,37 @@ public class UsuarioController {
                 .map(u -> new UsuarioResponseDTO(
                         u.getId(),
                         u.getNome(),
+                        u.getLogin(),
                         u.getObservacoes(),
-                        u.getCategoria() != null ? u.getCategoria().name() : "N/A"
+                        u.getCategoria() != null ? u.getCategoria().name() : "N/A",
+                        u.getRole() != null ? u.getRole().name() : null
+                )).toList();
+
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/gestores")
+    public ResponseEntity<List<UsuarioResponseDTO>> listarGestores() {
+        segurancaService.garantirEhGestor("Somente administradores podem listar administradores.");
+        List<Usuario> administradores = new ArrayList<>();
+        if (segurancaService.ehSuperAdmin()) {
+            administradores.addAll(usuarioRepository.findByRole(Role.GESTOR_ENTIDADE));
+            administradores.addAll(usuarioRepository.findByRole(Role.SUPER_ADMIN));
+        } else {
+            UUID tenantId = segurancaService.tenantDoLogado();
+            administradores.addAll(usuarioRepository.findByTenantIdAndRole(tenantId, Role.GESTOR_ENTIDADE));
+            administradores.addAll(usuarioRepository.findByTenantIdAndRole(tenantId, Role.SUPER_ADMIN));
+        }
+
+        List<UsuarioResponseDTO> response = administradores.stream()
+                .distinct()
+                .map(u -> new UsuarioResponseDTO(
+                        u.getId(),
+                        u.getNome(),
+                        u.getLogin(),
+                        u.getObservacoes(),
+                        u.getCategoria() != null ? u.getCategoria().name() : "N/A",
+                        u.getRole() != null ? u.getRole().name() : null
                 )).toList();
 
         return ResponseEntity.ok(response);

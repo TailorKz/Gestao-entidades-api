@@ -49,6 +49,7 @@ public class DespesaEstimadaController {
 
     @GetMapping("/parcela/{parcelaId}")
     public ResponseEntity<List<DespesaEstimadaResponseDTO>> listarPorParcela(@PathVariable UUID parcelaId) {
+        segurancaService.garantirEhGestor("Somente gestores podem listar a projeção de gastos.");
         Parcela parcela = validarParcela(parcelaId);
 
         List<DespesaEstimadaResponseDTO> lista = repository.findByParcelaIdOrderByOrdemAscIdAsc(parcela.getId()).stream()

@@ -55,4 +55,7 @@ public interface ComprovanteBbRepository extends JpaRepository<ComprovanteBb, UU
     @Query("select c.despesa.id, c.dataPagamento from ComprovanteBb c " +
             "where c.despesa.id in :despesaIds and c.dataPagamento is not null")
     List<Object[]> findDataPagamentoPorDespesa(@Param("despesaIds") Collection<UUID> despesaIds);
+
+    @Query("select c.tenant.id from ComprovanteBb c where c.chaveS3 = :chaveS3")
+    List<UUID> findTenantIdByChaveS3(@Param("chaveS3") String chaveS3);
 }

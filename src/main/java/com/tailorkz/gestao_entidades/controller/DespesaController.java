@@ -14,12 +14,10 @@ import com.tailorkz.gestao_entidades.domain.enums.TipoDocumentoGerr;
 import com.tailorkz.gestao_entidades.domain.model.AcaoGerr;
 import com.tailorkz.gestao_entidades.domain.model.ComprovanteBb;
 import com.tailorkz.gestao_entidades.domain.model.Despesa;
-import com.tailorkz.gestao_entidades.domain.model.DespesaEstimada;
 import com.tailorkz.gestao_entidades.domain.model.Parcela;
 import com.tailorkz.gestao_entidades.domain.model.Usuario;
 import com.tailorkz.gestao_entidades.domain.repository.AcaoGerrRepository;
 import com.tailorkz.gestao_entidades.domain.repository.ComprovanteBbRepository;
-import com.tailorkz.gestao_entidades.domain.repository.DespesaEstimadaRepository;
 import com.tailorkz.gestao_entidades.domain.repository.DespesaRepository;
 import com.tailorkz.gestao_entidades.domain.repository.DocumentoAnexoRepository;
 import com.tailorkz.gestao_entidades.domain.repository.ParcelaRepository;
@@ -65,7 +63,6 @@ public class DespesaController {
     private final DocumentoAnexoRepository documentoAnexoRepository;
     private final ParcelaRepository parcelaRepository;
     private final UsuarioRepository usuarioRepository;
-    private final DespesaEstimadaRepository despesaEstimadaRepository;
     private final ComprovanteBbRepository comprovanteBbRepository;
     private final ConciliacaoService conciliacaoService;
     private final SegurancaService segurancaService;
@@ -77,7 +74,6 @@ public class DespesaController {
                              DocumentoAnexoRepository documentoAnexoRepository,
                              ParcelaRepository parcelaRepository,
                              UsuarioRepository usuarioRepository,
-                             DespesaEstimadaRepository despesaEstimadaRepository,
                              ComprovanteBbRepository comprovanteBbRepository,
                              ConciliacaoService conciliacaoService,
                              SegurancaService segurancaService,
@@ -88,7 +84,6 @@ public class DespesaController {
         this.documentoAnexoRepository = documentoAnexoRepository;
         this.parcelaRepository = parcelaRepository;
         this.usuarioRepository = usuarioRepository;
-        this.despesaEstimadaRepository = despesaEstimadaRepository;
         this.comprovanteBbRepository = comprovanteBbRepository;
         this.conciliacaoService = conciliacaoService;
         this.segurancaService = segurancaService;
@@ -200,19 +195,6 @@ public class DespesaController {
 
         Despesa despesaSalva = despesaService.registrarNovaDespesa(novaDespesa);
 
-        if (avulso) {
-            String descEstimativa = nomeEmpresa.trim();
-            if (observacao != null && !observacao.isBlank()) {
-                descEstimativa += " - OBS: " + observacao.trim();
-            }
-            DespesaEstimada estimativa = new DespesaEstimada();
-            estimativa.setDescricao(descEstimativa);
-            estimativa.setValor(valor);
-            estimativa.setParcela(parcela);
-            estimativa.setOrdem(despesaEstimadaRepository.maiorOrdemDaParcela(parcela.getId()) + 1);
-            despesaEstimadaRepository.save(estimativa);
-        }
-
         anexarEmParalelo(despesaSalva.getId(), notaFiscal, anexosExtras);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(paraDTO(despesaSalva));
@@ -222,6 +204,7 @@ public class DespesaController {
     public ResponseEntity<List<DespesaResponseDTO>> listarDoInstrutorNaParcela(
             @PathVariable UUID parcelaId,
             @PathVariable UUID instrutorId) {
+        segurancaService.garantirEhGestor("Somente gestores podem consultar despesas por instrutor.");
         Parcela parcela = validarParcelaAutenticada(parcelaId);
 
         Usuario instrutor = usuarioRepository.findById(instrutorId)
@@ -234,6 +217,7 @@ public class DespesaController {
 
     @GetMapping("/parcela/{parcelaId}")
     public ResponseEntity<List<DespesaResponseDTO>> listarPorParcela(@PathVariable UUID parcelaId) {
+        segurancaService.garantirEhGestor("Somente gestores podem listar as despesas da parcela.");
         Parcela parcela = validarParcelaAutenticada(parcelaId);
         return ResponseEntity.ok(toDTO(despesaRepository.findByParcelaIdOrderByOrdemAscIdAsc(parcela.getId())));
     }
@@ -381,28 +365,6 @@ public class DespesaController {
         parcela.setSaldoAtual(saldoAjustado.subtract(dto.valor()));
         parcelaRepository.save(parcela);
 
-        if (salva.getNomeEmpresa() != null && !salva.getNomeEmpresa().isBlank()) {
-            String empresa = salva.getNomeEmpresa().trim();
-            StringBuilder descEstimativa = new StringBuilder(empresa);
-            if (salva.getObservacao() != null && !salva.getObservacao().isBlank()) {
-                descEstimativa.append(" - OBS: ").append(salva.getObservacao().trim());
-            }
-            String descricaoFinal = descEstimativa.toString();
-            despesaEstimadaRepository.findByParcelaId(parcela.getId()).stream()
-                    .filter(e -> {
-                        String d = e.getDescricao();
-                        if (d == null) return false;
-                        return d.equals(empresa)
-                                || d.startsWith(empresa + " - OBS:")
-                                || d.equals("Lançamento avulso \u2014 " + empresa); // legado
-                    })
-                    .findFirst()
-                    .ifPresent(e -> {
-                        e.setDescricao(descricaoFinal);
-                        despesaEstimadaRepository.save(e);
-                    });
-        }
-
         return ResponseEntity.ok(paraDTO(salva));
     }
 
@@ -418,20 +380,6 @@ public class DespesaController {
         parcelaRepository.save(parcela);
 
         anexoService.removerAnexosDaDespesa(despesa.getId());
-
-        if (despesa.getNomeEmpresa() != null && !despesa.getNomeEmpresa().isBlank()) {
-            String empresa = despesa.getNomeEmpresa().trim();
-            despesaEstimadaRepository.findByParcelaId(parcela.getId()).stream()
-                    .filter(e -> {
-                        String d = e.getDescricao();
-                        if (d == null) return false;
-                        return d.equals(empresa)
-                                || d.startsWith(empresa + " - OBS:")
-                                || d.equals("Lançamento avulso \u2014 " + empresa); // legado
-                    })
-                    .findFirst()
-                    .ifPresent(despesaEstimadaRepository::delete);
-        }
 
         despesaRepository.deleteById(despesa.getId());
         return ResponseEntity.noContent().build();
